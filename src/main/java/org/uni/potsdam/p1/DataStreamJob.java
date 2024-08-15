@@ -30,6 +30,7 @@ import org.apache.flink.connector.datagen.source.GeneratorFunction;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.util.Collector;
+import org.uni.potsdam.p1.types.Measurement;
 
 import java.time.Duration;
 import java.util.List;
@@ -39,6 +40,7 @@ public class DataStreamJob {
 
   public static int BATCH_SIZE = 10000;
   public static long START_TIME = System.nanoTime();
+  public static GeneratorFunction<Long, Measurement> MEASUREMENT_GENERATOR;
 
   public static void main(String[] args) throws Exception {
     final StreamExecutionEnvironment env =
@@ -46,6 +48,7 @@ public class DataStreamJob {
     doExample1(env);
     env.execute("Flink Java API Skeleton");
   }
+
 
   private static void doExample1(StreamExecutionEnvironment env) {
     GeneratorFunction<Long, Tuple2<Character, Long>> uff =
@@ -71,7 +74,7 @@ public class DataStreamJob {
 
     CEP.pattern(in, pattern).process(new PatternProcessFunction<Tuple2<Character, Long>, String>() {
       @Override
-      public void processMatch(Map<String, List<Tuple2<Character, Long>>> match, Context ctx, Collector<String> out) throws Exception {
+      public void processMatch(Map<String, List<Tuple2<Character, Long>>> match, Context ctx, Collector<String> out) {
         out.collect("CAR");
       }
     }).print();
