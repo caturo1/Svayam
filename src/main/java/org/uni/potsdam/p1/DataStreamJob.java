@@ -90,23 +90,22 @@ public class DataStreamJob {
       WatermarkStrategy.<Measurement>forMonotonousTimestamps()
         .withTimestampAssigner((meas, t) -> meas.eventTime),
       "Generator");
-    Pattern<Measurement, ?> pattern1 = PatternCreator.seq(1000000, 0, 0, 1);
-    Pattern<Measurement, ?> pattern2 = PatternCreator.seq(1000000, 1, 2, 3);
-    Pattern<Measurement, ?> pattern3 = PatternCreator.lazySeq(1000000);
+    Pattern<Measurement, ?> pattern1 = PatternCreator.seq(100000, 0, 0, 1);
+    Pattern<Measurement, ?> pattern2 = PatternCreator.seq(100000, 1, 2, 3);
+    Pattern<Measurement, ?> pattern3 = PatternCreator.lazySeq(100000);
 
     PatternStream<Measurement> Q11 = CEP.pattern(source1, pattern1);
     PatternStream<Measurement> Q21 = CEP.pattern(source2, pattern1);
-//    PatternStream<Measurement> Q12 = CEP.pattern(source1, pattern3);
-//    PatternStream<Measurement> Q22 = CEP.pattern(source2, pattern2);
+    PatternStream<Measurement> Q12 = CEP.pattern(source1, pattern3);
+    PatternStream<Measurement> Q22 = CEP.pattern(source2, pattern2);
 
     DataStream<ComplexEvent> C1 = Q11.process(new PatternProcessFunction<>() {
       @Override
       public void processMatch(Map<String, List<Measurement>> match, Context ctx, Collector<ComplexEvent> out) {
         String result = "Q11 -" +
-          " Duration : " + Duration.between(
+          " D : " + Duration.between(
           LocalTime.ofNanoOfDay(match.get("start").get(0).eventTime),
-          LocalTime.ofNanoOfDay(match.get("end").get(0).eventTime))
-          + " " + ctx.timestamp();
+          LocalTime.ofNanoOfDay(match.get("end").get(0).eventTime));
         out.collect(new ComplexEvent(result, ctx.timestamp()));
       }
     });
@@ -114,41 +113,57 @@ public class DataStreamJob {
       @Override
       public void processMatch(Map<String, List<Measurement>> match, Context ctx, Collector<ComplexEvent> out) {
         String result = "Q21 -" +
-          " Duration : " + Duration.between(
+          " D : " + Duration.between(
           LocalTime.ofNanoOfDay(match.get("start").get(0).eventTime),
-          LocalTime.ofNanoOfDay(match.get("end").get(0).eventTime))
-          + " " + ctx.timestamp();
+          LocalTime.ofNanoOfDay(match.get("end").get(0).eventTime));
         out.collect(new ComplexEvent(result, ctx.timestamp()));
       }
     });
-//    DataStream<ComplexEvent> C3 = Q12.process(new PatternProcessFunction<>() {
-//      @Override
-//      public void processMatch(Map<String, List<Measurement>> match, Context ctx, Collector<ComplexEvent> out) throws Exception {
-//        out.collect(new ComplexEvent("Q12", ctx.timestamp()));
-//      }
-//    });
-//    DataStream<ComplexEvent> C4 = Q22.process(new PatternProcessFunction<>() {
-//      @Override
-//      public void processMatch(Map<String, List<Measurement>> match, Context ctx, Collector<ComplexEvent> out) throws Exception {
-//        out.collect(new ComplexEvent("Q22", ctx.timestamp()));
-//      }
-//    });
+    DataStream<ComplexEvent> C3 = Q12.process(new PatternProcessFunction<>() {
+      @Override
+      public void processMatch(Map<String, List<Measurement>> match, Context ctx, Collector<ComplexEvent> out) {
+        Measurement one = match.get("start").get(0);
+        Measurement two = match.get("middle").get(0);
+        Measurement three = match.get("end").get(0);
+        String result = "Q13 -" +
+          " D : " + Duration.between(
+          LocalTime.ofNanoOfDay(one.eventTime),
+          LocalTime.ofNanoOfDay(three.eventTime))
+          + " P: " + one.machineId + " " + two.machineId + " " + three.machineId;
+        out.collect(new ComplexEvent(result, ctx.timestamp()));
+      }
+    });
+
+    DataStream<ComplexEvent> C4 = Q22.process(new PatternProcessFunction<>() {
+      @Override
+      public void processMatch(Map<String, List<Measurement>> match, Context ctx, Collector<ComplexEvent> out) {
+        String result = "Q22 -" +
+          " D : " + Duration.between(
+          LocalTime.ofNanoOfDay(match.get("start").get(0).eventTime),
+          LocalTime.ofNanoOfDay(match.get("end").get(0).eventTime));
+        out.collect(new ComplexEvent(result, ctx.timestamp()));
+      }
+    });
 
     C1.join(C2)
       .where(event -> 1)
       .equalTo(event -> 1)
       .window(TumblingEventTimeWindows.of(Duration.ofMillis(1000)))
       .apply(
-        (JoinFunction<ComplexEvent, ComplexEvent, String>)
-          (first, second) -> first.name + " -- " + second.name).print();
+        (JoinFunction<ComplexEvent, ComplexEvent, ComplexEvent>)
+          (first, second) -> new ComplexEvent("CE1: " + first.name + " " + second.name,
+            first.timestamp))
+      .sinkTo(sinks.get(0));
 
-//    C1.join(C2)
-//      .where(event -> 1)
-//      .equalTo(event -> 1)
-//      .window(TumblingEventTimeWindows.of(Duration.ofMillis(10000)))
-//      .apply(
-//        (JoinFunction<ComplexEvent, ComplexEvent, String>)
-//          (first, second) -> first.name + " -- " + second.name).print();
+    C3.join(C4)
+      .where(event -> 1)
+      .equalTo(event -> 1)
+      .window(TumblingEventTimeWindows.of(Duration.ofMillis(1000)))
+      .apply(
+        (JoinFunction<ComplexEvent, ComplexEvent, ComplexEvent>)
+          (first, second) -> new ComplexEvent("CE2: " + first.name + "\t" + second.name,
+            first.timestamp))
+      .sinkTo(sinks.get(0));
 
     return env.execute("Flink Java CEP Prototype");
   }

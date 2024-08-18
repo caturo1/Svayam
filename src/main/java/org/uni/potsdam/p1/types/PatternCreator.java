@@ -53,7 +53,7 @@ public final class PatternCreator {
           public boolean filter(Measurement value, Context<Measurement> ctx) throws Exception {
             Measurement firstEvent = ctx.getEventsForPattern("start").iterator().next();
             Measurement secondEvent = ctx.getEventsForPattern("middle").iterator().next();
-            return !(value.machineId > 0 ||
+            return !(value.machineId == 0 ||
               firstEvent.machineId == value.machineId ||
               secondEvent.machineId == value.machineId);
           }

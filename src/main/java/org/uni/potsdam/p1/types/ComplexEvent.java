@@ -27,9 +27,8 @@ public class ComplexEvent implements Serializable {
 
   @Override
   public String toString() {
-    return "ComplexEvent{" +
-      "name='" + name + '\'' +
-      ", timestamp=" + timestamp +
+    return '{' + name + '\'' +
+      ", " + timestamp +
       '}';
   }
 
