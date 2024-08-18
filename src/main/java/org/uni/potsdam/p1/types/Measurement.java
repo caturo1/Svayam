@@ -17,11 +17,19 @@ public class Measurement implements Serializable {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
     Measurement that = (Measurement) o;
-    return machineId == that.machineId;
+    return machineId == that.machineId && eventTime == that.eventTime;
+  }
+
+  @Override
+  public String toString() {
+    return "Measurement{" +
+      "machineId=" + machineId +
+      ", eventTime=" + eventTime +
+      '}';
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(machineId);
+    return Objects.hash(machineId, eventTime);
   }
 }
