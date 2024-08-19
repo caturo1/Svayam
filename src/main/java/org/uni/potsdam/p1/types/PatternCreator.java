@@ -34,7 +34,6 @@ public final class PatternCreator {
   //TODO varargs parameter describing the events to be detected - collect them in a set
   // or collection and create the pattern incrementally in a while loop
   public static Pattern<Measurement, ?> lazySeq() {
-
     return Pattern.begin(
       Pattern.<Measurement>begin("start")
         .where(SimpleCondition.of(meas -> meas.machineId > 0))
