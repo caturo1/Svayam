@@ -9,7 +9,7 @@ public class ComplexEvent implements Serializable {
 
   public ComplexEvent() {
     name = "";
-    timestamp = System.nanoTime();
+    timestamp = System.currentTimeMillis();
   }
 
   public ComplexEvent(String name, long timestamp) {

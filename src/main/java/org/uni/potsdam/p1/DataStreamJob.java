@@ -22,7 +22,6 @@ import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.JoinFunction;
 import org.apache.flink.api.common.functions.OpenContext;
-import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
@@ -31,26 +30,24 @@ import org.apache.flink.cep.CEP;
 import org.apache.flink.cep.PatternStream;
 import org.apache.flink.cep.functions.PatternProcessFunction;
 import org.apache.flink.cep.pattern.Pattern;
-import org.apache.flink.configuration.Configuration;
 import org.apache.flink.connector.datagen.source.DataGeneratorSource;
 import org.apache.flink.connector.datagen.source.GeneratorFunction;
 import org.apache.flink.connector.file.src.FileSource;
 import org.apache.flink.connector.file.src.reader.TextLineInputFormat;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction;
+import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.streaming.api.functions.sink.PrintSink;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.util.Collector;
+import org.apache.flink.util.OutputTag;
 import org.uni.potsdam.p1.types.ComplexEvent;
 import org.uni.potsdam.p1.types.Measurement;
 import org.uni.potsdam.p1.types.PatternCreator;
 
-import java.io.File;
-import java.io.PrintWriter;
 import java.time.Duration;
-import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -65,10 +62,7 @@ public class DataStreamJob {
   // define the number of entries and
   private static final int BATCH_SIZE = 10000;
   private static final GeneratorFunction<Long, Measurement>
-    MEASUREMENT_GENERATOR = index -> {
-//    Thread.sleep(10);
-    return new Measurement();
-  };
+    MEASUREMENT_GENERATOR = Measurement::new;
 
   private final List<DataGeneratorSource<Measurement>> sources = new ArrayList<>();
   private final List<Sink<ComplexEvent>> sinks = new ArrayList<>();
@@ -104,7 +98,7 @@ public class DataStreamJob {
       sources.get(1),
       WatermarkStrategy.<Measurement>forMonotonousTimestamps()
         .withTimestampAssigner((meas, t) -> meas.eventTime),
-      "Generator");
+      "Generator").keyBy(meas -> 2);
 
 
 //     Basic Stream Job bellow
@@ -113,10 +107,12 @@ public class DataStreamJob {
     // events are being created right now is too high
 
     // Patterns are defined and matches are stored in pattern streams after being read
-    Pattern<Measurement, ?> pattern1 = PatternCreator.seq(100000, 0, 0, 1);
+    Pattern<Measurement, ?> pattern1 = PatternCreator.seq(3, 0, 0, 1);
     Pattern<Measurement, ?> pattern2 = PatternCreator.seq(100000, 1, 2, 3);
     Pattern<Measurement, ?> pattern3 = PatternCreator.lazySeq(100000);
 
+//    PatternStream<Measurement> Q11 = CEP.pattern(shedder1, pattern1);
+//    PatternStream<Measurement> Q21 = CEP.pattern(shedder2, pattern1);
     PatternStream<Measurement> Q11 = CEP.pattern(source1, pattern1);
     PatternStream<Measurement> Q21 = CEP.pattern(source2, pattern1);
     PatternStream<Measurement> Q12 = CEP.pattern(source1, pattern3);
@@ -127,19 +123,22 @@ public class DataStreamJob {
       @Override
       public void processMatch(Map<String, List<Measurement>> match, Context ctx, Collector<ComplexEvent> out) {
         String result = "Q11 -" +
-          " D : " + Duration.between(
-          LocalTime.ofNanoOfDay(match.get("start").get(0).eventTime),
-          LocalTime.ofNanoOfDay(match.get("end").get(0).eventTime));
+          " D : " + match.get("start").get(0).eventTime + " " +
+          match.get("middle").get(0).eventTime + " " +
+          match.get("end").get(0).eventTime;
         out.collect(new ComplexEvent(result, ctx.timestamp()));
       }
     });
     DataStream<ComplexEvent> C2 = Q21.process(new PatternProcessFunction<>() {
       @Override
       public void processMatch(Map<String, List<Measurement>> match, Context ctx, Collector<ComplexEvent> out) {
+        Measurement start = match.get("start").get(0);
+        Measurement middle = match.get("middle").get(0);
+        Measurement end = match.get("end").get(0);
         String result = "Q21 -" +
-          " D : " + Duration.between(
-          LocalTime.ofNanoOfDay(match.get("start").get(0).eventTime),
-          LocalTime.ofNanoOfDay(match.get("end").get(0).eventTime));
+          " D : " + start.eventTime + " " +
+          middle.eventTime + " " +
+          end.eventTime;
         out.collect(new ComplexEvent(result, ctx.timestamp()));
       }
     });
@@ -172,22 +171,22 @@ public class DataStreamJob {
     C1.join(C2)
       .where(event -> 1)
       .equalTo(event -> 1)
-      .window(TumblingEventTimeWindows.of(Duration.ofMillis(1000)))
+      .window(TumblingEventTimeWindows.of(Duration.ofMillis(1)))
       .apply(
         (JoinFunction<ComplexEvent, ComplexEvent, ComplexEvent>)
           (first, second) -> new ComplexEvent("CE1: " + first.name + "    " + second.name,
-            first.timestamp))
+            Math.max(first.timestamp, second.timestamp)))
       .sinkTo(sinks.get(0));
 
     C3.join(C4)
-      .where(event -> 1)
-      .equalTo(event -> 1)
+      .where(event -> 2)
+      .equalTo(event -> 2)
       .window(TumblingEventTimeWindows.of(Duration.ofMillis(1000)))
       .apply(
         (JoinFunction<ComplexEvent, ComplexEvent, ComplexEvent>)
           (first, second) -> new ComplexEvent("CE2: " + first.name + "    " + second.name,
             first.timestamp))
-      .sinkTo(sinks.get(0));
+      .sinkTo(sinks.get(1));
 
     return env.execute("Flink Java CEP Prototype");
   }
@@ -211,8 +210,8 @@ public class DataStreamJob {
   //TODO assign a shedder to each operator in order to control their load shedding
   // attributes
   public void testShedder(StreamExecutionEnvironment env,
-                          DataStream<Measurement> source1) {
-
+                          DataStream<Measurement> source1,
+                          DataStream<Measurement> source2) {
 
     // connect to directory - look for new files
     FileSource<String> fileSource = FileSource.forRecordStreamFormat(
@@ -221,27 +220,50 @@ public class DataStreamJob {
       )
       .monitorContinuously(Duration.ofSeconds(1)).build();
 
+    final OutputTag<String> outputTag = new OutputTag<>("side-output") {
+    };
     DataStream<String> fromFile = env.fromSource(fileSource,
       WatermarkStrategy.noWatermarks(), "file-source").keyBy(s -> 1);
 
+    final OutputTag<String> outputTag2 = new OutputTag<>("side-output2") {
+    };
     // connect FileSource with MeasurementSource - store last rate-information in state
     // and use it to filter incoming Measurement events
-    DataStream<Measurement> shedder1 = source1.connect(fromFile).flatMap(
-      new RichCoFlatMapFunction<>() {
+    //TODO find a more reliable random number generator for the acceptance probability
+    //TODO JUnit tests
+    SingleOutputStreamOperator<Measurement> shedder1 = source1.process(
+      new ProcessFunction<>() {
         ValueState<Rates> rates;
+        ValueState<Integer> count;
+        ValueState<LocalTime> time;
 
         @Override
         public void open(OpenContext openContext) {
           rates = getRuntimeContext().getState(new ValueStateDescriptor<>("rates",
             Rates.class));
+          count = getRuntimeContext().getState(new ValueStateDescriptor<>("count",
+            Integer.class));
+          time = getRuntimeContext().getState(new ValueStateDescriptor<>("time",
+            LocalTime.class));
         }
 
-        //TODO find a more reliable random number generator for the acceptance probability
-        //TODO JUnit tests
         @Override
-        public void flatMap1(Measurement value, Collector out) throws Exception {
+        public void processElement(Measurement value, Context ctx,
+                                   Collector<Measurement> out) throws Exception {
+          if (count.value() == null) {
+            count.update(1);
+            time.update(LocalTime.now());
+          } else if (count.value() % 10 != 0) {
+            count.update(1 + count.value());
+          } else {
+            ctx.output(outputTag,
+              String.valueOf(count.value()) + Duration.between(
+                time.value(),
+                LocalTime.now()));
+            count.update(1 + count.value());
+            time.update(LocalTime.now());
+          }
           double prob = Math.random();
-          int which = value.machineId;
           Rates current = rates.value();
           if (
             current == null ||
@@ -250,63 +272,79 @@ public class DataStreamJob {
               value.machineId == 2 && prob < current.E3 ||
               value.machineId == 3 && prob < current.E4
           ) {
-            System.out.println(
-              "Yep: machine: " + which + " - prob: " + prob + " current:" + (current == null ? 1 :
-                current.getEvent(which)));
+//            System.out.println(
+//              "Yep: machine: " + which + " - prob: " + prob + " current:" + (current == null ? 1 :
+//                current.getEvent(which)));
             out.collect(value);
-          } else {
-            System.out.println(
-              "Nope: machine: " + which + " - prob: " + current.getEvent(which));
           }
+//          else {
+//            System.out.println(
+//              "Nope: machine: " + which + " - prob: " + current.getEvent(which));
+//          }
+        }
+      }
+    );
+//TODO create a shedder class and store the overall rate of events per second arriving
+// at the operator or sink as well as the input rate of events per seconf of a specific
+// event type T. Output should include the identification of the operator, the above
+// mentioned rates and the ratio between the incoming rate of a type in comparison to
+// the total incoming rate.
+    SingleOutputStreamOperator<Measurement> shedder2 = source2.process(
+      new ProcessFunction<>() {
+        ValueState<Rates> rates;
+        ValueState<Integer> count;
+        ValueState<LocalTime> time;
+
+        @Override
+        public void open(OpenContext openContext) {
+          rates = getRuntimeContext().getState(new ValueStateDescriptor<>("rates",
+            Rates.class));
+          count = getRuntimeContext().getState(new ValueStateDescriptor<>("count",
+            Integer.class));
+          time = getRuntimeContext().getState(new ValueStateDescriptor<>("time",
+            LocalTime.class));
         }
 
         @Override
-        public void flatMap2(String value, Collector out) throws Exception {
-          rates.update(Rates.parse(value));
+        public void processElement(Measurement value, Context ctx,
+                                   Collector<Measurement> out) throws Exception {
+          if (count.value() == null) {
+            count.update(1);
+            time.update(LocalTime.now());
+          } else if (count.value() % 10 != 0) {
+            count.update(1 + count.value());
+          } else {
+            ctx.output(outputTag2,
+              String.valueOf(count.value()) + Duration.between(
+                time.value(),
+                LocalTime.now()));
+            count.update(1 + count.value());
+            time.update(LocalTime.now());
+          }
+          double prob = Math.random();
+          Rates current = rates.value();
+          if (
+            current == null ||
+              value.machineId == 0 && prob < current.E1 ||
+              value.machineId == 1 && prob < current.E2 ||
+              value.machineId == 2 && prob < current.E3 ||
+              value.machineId == 3 && prob < current.E4
+          ) {
+//            System.out.println(
+//              "Yep: machine: " + which + " - prob: " + prob + " current:" + (current == null ? 1 :
+//                current.getEvent(which)));
+            out.collect(value);
+          }
+//          else {
+//            System.out.println(
+//              "Nope: machine: " + which + " - prob: " + current.getEvent(which));
+//          }
         }
       }
     );
 
-    // rates should be stored in files AFTER the first events are read - the system has
-    // to retroactively feed itself with information. This can be done with a
-    // RichFunction keeping track of the Measurement events going through the shedder.
-    // This example creates new event rates every time 50 measurements go through the
-    // shedder
-    //TODO find a way to keep track of the input rate of events in the operator and to
-    // send it downstream, so that we can use it to determine a better load shedding
-    // configuration. The real shedder must take input and output rates of the operator
-    // into account.
-    shedder1.keyBy(rate -> 1).flatMap(new RichFlatMapFunction<Measurement, Rates>() {
-      ValueState<Integer> rates;
-      ValueState<String> name;
+    DataStream<String> uff = shedder1.getSideOutput(outputTag);
+    DataStream<String> uff2 = shedder2.getSideOutput(outputTag);
 
-      @Override
-      public void open(Configuration conf) {
-        rates = getRuntimeContext().getState(new ValueStateDescriptor<>("rates",
-          Integer.class));
-        name = getRuntimeContext().getState(new ValueStateDescriptor<>("name",
-          String.class));
-      }
-
-      @Override
-      public void flatMap(Measurement value, Collector<Rates> out) throws Exception {
-        boolean isNull = rates.value() == null;
-        if (isNull) {
-          rates.update(1);
-        } else if (rates.value() % 50 != 0) {
-          rates.update(rates.value() + 1);
-        } else {
-          double amount = (double) (BATCH_SIZE - rates.value()) / BATCH_SIZE;
-          File toWrite = new File("/home/olaf-link/Documents/projects/p1/src/main" +
-            "/resources/test/" + LocalDate.now() + "-" + rates.value());
-          try (PrintWriter writer = new PrintWriter(toWrite)) {
-            String current = String.format("%f %1$f %1$f %1$f %s", amount, toWrite.getAbsolutePath());
-            name.update(toWrite.getAbsolutePath());
-            writer.write(current);
-          }
-          rates.update(rates.value() + 1);
-        }
-      }
-    });
   }
 }

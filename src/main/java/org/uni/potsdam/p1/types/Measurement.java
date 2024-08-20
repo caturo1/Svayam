@@ -9,7 +9,12 @@ public class Measurement implements Serializable {
 
   public Measurement() {
     machineId = (int) (Math.random() * 4);
-    eventTime = System.nanoTime();
+    eventTime = System.currentTimeMillis();
+  }
+
+  public Measurement(long plus) {
+    machineId = (int) (Math.random() * 4);
+    eventTime = System.currentTimeMillis() + plus;
   }
 
   @Override
