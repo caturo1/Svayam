@@ -21,9 +21,6 @@ package org.uni.potsdam.p1;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.JoinFunction;
-import org.apache.flink.api.common.functions.OpenContext;
-import org.apache.flink.api.common.state.ValueState;
-import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.connector.sink2.Sink;
 import org.apache.flink.cep.CEP;
@@ -32,13 +29,9 @@ import org.apache.flink.cep.functions.PatternProcessFunction;
 import org.apache.flink.cep.pattern.Pattern;
 import org.apache.flink.connector.datagen.source.DataGeneratorSource;
 import org.apache.flink.connector.datagen.source.GeneratorFunction;
-import org.apache.flink.connector.file.src.FileSource;
-import org.apache.flink.connector.file.src.reader.TextLineInputFormat;
-import org.apache.flink.core.fs.Path;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.streaming.api.functions.sink.PrintSink;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.util.Collector;
@@ -46,9 +39,9 @@ import org.apache.flink.util.OutputTag;
 import org.uni.potsdam.p1.types.ComplexEvent;
 import org.uni.potsdam.p1.types.Measurement;
 import org.uni.potsdam.p1.types.PatternCreator;
+import org.uni.potsdam.p1.types.Shedder;
 
 import java.time.Duration;
-import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -101,6 +94,14 @@ public class DataStreamJob {
       "Generator").keyBy(meas -> 2);
 
 
+    final OutputTag<InputRate> outputTag = new OutputTag<>("side-output") {
+    };
+    final OutputTag<InputRate> outputTag2 = new OutputTag<>("side-output2") {
+    };
+    final OutputTag<InputRate> outputTag3 = new OutputTag<>("side-output3") {
+    };
+    final OutputTag<InputRate> outputTag4 = new OutputTag<>("side-output4") {
+    };
 //     Basic Stream Job bellow
 
     //TODO Find real benchmark or adapt using Milliseconds in the job - rate in which
@@ -111,12 +112,18 @@ public class DataStreamJob {
     Pattern<Measurement, ?> pattern2 = PatternCreator.seq(100000, 1, 2, 3);
     Pattern<Measurement, ?> pattern3 = PatternCreator.lazySeq(100000);
 
-//    PatternStream<Measurement> Q11 = CEP.pattern(shedder1, pattern1);
-//    PatternStream<Measurement> Q21 = CEP.pattern(shedder2, pattern1);
-    PatternStream<Measurement> Q11 = CEP.pattern(source1, pattern1);
-    PatternStream<Measurement> Q21 = CEP.pattern(source2, pattern1);
-    PatternStream<Measurement> Q12 = CEP.pattern(source1, pattern3);
-    PatternStream<Measurement> Q22 = CEP.pattern(source2, pattern2);
+    SingleOutputStreamOperator<Measurement> shedder1 = source1.process(new Shedder(outputTag));
+    SingleOutputStreamOperator<Measurement> shedder2 =
+      source2.process(new Shedder(outputTag2));
+    SingleOutputStreamOperator<Measurement> shedder3 =
+      source1.process(new Shedder(outputTag3));
+    SingleOutputStreamOperator<Measurement> shedder4 =
+      source2.process(new Shedder(outputTag4));
+
+    PatternStream<Measurement> Q11 = CEP.pattern(shedder1, pattern1);
+    PatternStream<Measurement> Q21 = CEP.pattern(shedder2, pattern1);
+    PatternStream<Measurement> Q12 = CEP.pattern(shedder3, pattern3);
+    PatternStream<Measurement> Q22 = CEP.pattern(shedder4, pattern2);
 
     // Matches are processed and create new complex events C[1-4]
     DataStream<ComplexEvent> C1 = Q11.process(new PatternProcessFunction<>() {
@@ -149,9 +156,9 @@ public class DataStreamJob {
         Measurement two = match.get("middle").get(0);
         Measurement three = match.get("end").get(0);
         String result = "Q12 -" +
-          " D : " + Duration.between(
-          LocalTime.ofNanoOfDay(one.eventTime),
-          LocalTime.ofNanoOfDay(three.eventTime))
+          " D : " + one.eventTime + " " +
+          two.eventTime + " " +
+          three.eventTime
           + " P: " + one.machineId + " " + two.machineId + " " + three.machineId;
         out.collect(new ComplexEvent(result, ctx.timestamp()));
       }
@@ -159,10 +166,13 @@ public class DataStreamJob {
     DataStream<ComplexEvent> C4 = Q22.process(new PatternProcessFunction<>() {
       @Override
       public void processMatch(Map<String, List<Measurement>> match, Context ctx, Collector<ComplexEvent> out) {
+        Measurement start = match.get("start").get(0);
+        Measurement middle = match.get("middle").get(0);
+        Measurement end = match.get("end").get(0);
         String result = "Q22 -" +
-          " D : " + Duration.between(
-          LocalTime.ofNanoOfDay(match.get("start").get(0).eventTime),
-          LocalTime.ofNanoOfDay(match.get("end").get(0).eventTime));
+          " D : " + start.eventTime + " " +
+          middle.eventTime + " " +
+          end.eventTime;
         out.collect(new ComplexEvent(result, ctx.timestamp()));
       }
     });
@@ -188,6 +198,7 @@ public class DataStreamJob {
             first.timestamp))
       .sinkTo(sinks.get(1));
 
+
     return env.execute("Flink Java CEP Prototype");
   }
 
@@ -212,6 +223,7 @@ public class DataStreamJob {
   public void testShedder(StreamExecutionEnvironment env,
                           DataStream<Measurement> source1,
                           DataStream<Measurement> source2) {
+/*
 
     // connect to directory - look for new files
     FileSource<String> fileSource = FileSource.forRecordStreamFormat(
@@ -220,131 +232,23 @@ public class DataStreamJob {
       )
       .monitorContinuously(Duration.ofSeconds(1)).build();
 
-    final OutputTag<String> outputTag = new OutputTag<>("side-output") {
-    };
     DataStream<String> fromFile = env.fromSource(fileSource,
       WatermarkStrategy.noWatermarks(), "file-source").keyBy(s -> 1);
 
-    final OutputTag<String> outputTag2 = new OutputTag<>("side-output2") {
-    };
     // connect FileSource with MeasurementSource - store last rate-information in state
     // and use it to filter incoming Measurement events
     //TODO find a more reliable random number generator for the acceptance probability
     //TODO JUnit tests
-    SingleOutputStreamOperator<Measurement> shedder1 = source1.process(
-      new ProcessFunction<>() {
-        ValueState<Rates> rates;
-        ValueState<Integer> count;
-        ValueState<LocalTime> time;
-
-        @Override
-        public void open(OpenContext openContext) {
-          rates = getRuntimeContext().getState(new ValueStateDescriptor<>("rates",
-            Rates.class));
-          count = getRuntimeContext().getState(new ValueStateDescriptor<>("count",
-            Integer.class));
-          time = getRuntimeContext().getState(new ValueStateDescriptor<>("time",
-            LocalTime.class));
-        }
-
-        @Override
-        public void processElement(Measurement value, Context ctx,
-                                   Collector<Measurement> out) throws Exception {
-          if (count.value() == null) {
-            count.update(1);
-            time.update(LocalTime.now());
-          } else if (count.value() % 10 != 0) {
-            count.update(1 + count.value());
-          } else {
-            ctx.output(outputTag,
-              String.valueOf(count.value()) + Duration.between(
-                time.value(),
-                LocalTime.now()));
-            count.update(1 + count.value());
-            time.update(LocalTime.now());
-          }
-          double prob = Math.random();
-          Rates current = rates.value();
-          if (
-            current == null ||
-              value.machineId == 0 && prob < current.E1 ||
-              value.machineId == 1 && prob < current.E2 ||
-              value.machineId == 2 && prob < current.E3 ||
-              value.machineId == 3 && prob < current.E4
-          ) {
-//            System.out.println(
-//              "Yep: machine: " + which + " - prob: " + prob + " current:" + (current == null ? 1 :
-//                current.getEvent(which)));
-            out.collect(value);
-          }
-//          else {
-//            System.out.println(
-//              "Nope: machine: " + which + " - prob: " + current.getEvent(which));
-//          }
-        }
-      }
-    );
+    SingleOutputStreamOperator<Measurement> shedder1 =
+      source1.process(new Shedder(outputTag));
 //TODO create a shedder class and store the overall rate of events per second arriving
 // at the operator or sink as well as the input rate of events per seconf of a specific
 // event type T. Output should include the identification of the operator, the above
 // mentioned rates and the ratio between the incoming rate of a type in comparison to
 // the total incoming rate.
-    SingleOutputStreamOperator<Measurement> shedder2 = source2.process(
-      new ProcessFunction<>() {
-        ValueState<Rates> rates;
-        ValueState<Integer> count;
-        ValueState<LocalTime> time;
-
-        @Override
-        public void open(OpenContext openContext) {
-          rates = getRuntimeContext().getState(new ValueStateDescriptor<>("rates",
-            Rates.class));
-          count = getRuntimeContext().getState(new ValueStateDescriptor<>("count",
-            Integer.class));
-          time = getRuntimeContext().getState(new ValueStateDescriptor<>("time",
-            LocalTime.class));
-        }
-
-        @Override
-        public void processElement(Measurement value, Context ctx,
-                                   Collector<Measurement> out) throws Exception {
-          if (count.value() == null) {
-            count.update(1);
-            time.update(LocalTime.now());
-          } else if (count.value() % 10 != 0) {
-            count.update(1 + count.value());
-          } else {
-            ctx.output(outputTag2,
-              String.valueOf(count.value()) + Duration.between(
-                time.value(),
-                LocalTime.now()));
-            count.update(1 + count.value());
-            time.update(LocalTime.now());
-          }
-          double prob = Math.random();
-          Rates current = rates.value();
-          if (
-            current == null ||
-              value.machineId == 0 && prob < current.E1 ||
-              value.machineId == 1 && prob < current.E2 ||
-              value.machineId == 2 && prob < current.E3 ||
-              value.machineId == 3 && prob < current.E4
-          ) {
-//            System.out.println(
-//              "Yep: machine: " + which + " - prob: " + prob + " current:" + (current == null ? 1 :
-//                current.getEvent(which)));
-            out.collect(value);
-          }
-//          else {
-//            System.out.println(
-//              "Nope: machine: " + which + " - prob: " + current.getEvent(which));
-//          }
-        }
-      }
-    );
-
-    DataStream<String> uff = shedder1.getSideOutput(outputTag);
-    DataStream<String> uff2 = shedder2.getSideOutput(outputTag);
+    SingleOutputStreamOperator<Measurement> shedder2 = source2.process(new Shedder(outputTag2));
+    DataStream<Rates> uff2 = shedder2.getSideOutput(outputTag);
+*/
 
   }
 }
