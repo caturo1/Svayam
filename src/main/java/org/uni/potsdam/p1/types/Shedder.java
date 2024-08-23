@@ -12,8 +12,6 @@ public class Shedder extends ProcessFunction<Measurement, Measurement> {
 
   //  ValueState<InputRate> shedRates;
   ValueState<InputRate> input;
-  ValueState<Integer> sum;
-
   private final OutputTag<InputRate> output;
 
   public Shedder(OutputTag<InputRate> output) {
@@ -26,17 +24,13 @@ public class Shedder extends ProcessFunction<Measurement, Measurement> {
 //      InputRate.class));
     input = getRuntimeContext().getState(new ValueStateDescriptor<>("input",
       InputRate.class));
-    sum = getRuntimeContext().getState(new ValueStateDescriptor<>("sum",
-      Integer.class));
   }
 
   @Override
   public void processElement(Measurement value, Context ctx,
                              Collector<Measurement> out) throws Exception {
     if (input.value() == null) {
-      sum.update(0);
       input.update(new InputRate());
-      System.out.println(input);
       ctx.timerService().registerProcessingTimeTimer(ctx.timerService().currentProcessingTime() + 10);
     }
     input.value().countEvent(String.valueOf(value.machineId), 1);
@@ -50,7 +44,6 @@ public class Shedder extends ProcessFunction<Measurement, Measurement> {
 
   @Override
   public void onTimer(long timestamp, OnTimerContext ctx, Collector<Measurement> out) throws Exception {
-    sum.update(sum.value() + input.value().getTotal());
     ctx.output(output, input.value());
     input.value().clear();
     ctx.timerService().registerProcessingTimeTimer(ctx.timerService().currentProcessingTime() + 10);
