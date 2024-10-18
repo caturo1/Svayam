@@ -21,7 +21,6 @@ package org.uni.potsdam.p1;
 import com.google.gson.*;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
-import org.apache.flink.api.common.functions.JoinFunction;
 import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
@@ -39,7 +38,6 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.streaming.api.functions.co.KeyedCoProcessFunction;
 import org.apache.flink.streaming.api.functions.sink.PrintSink;
-import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 import org.uni.potsdam.p1.types.ComplexEvent;
@@ -47,7 +45,6 @@ import org.uni.potsdam.p1.types.Measurement;
 
 import java.io.Serializable;
 import java.lang.reflect.Type;
-import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
@@ -65,15 +62,93 @@ class EventJsonDeserializer implements JsonDeserializer<Measurement>, Serializab
   }
 }
 
+class Analyser extends KeyedCoProcessFunction<Double, HashMap<String, Double>, HashMap<String, Double>, String> {
+  MapState<String, Double> map1;
+  MapState<String, Double> map2;
+//        ValueState<Double> time;
+
+  @Override
+  public void open(Configuration conf) {
+    map1 = getRuntimeContext().getMapState(new MapStateDescriptor<>("map1", String.class, Double.class));
+    map2 = getRuntimeContext().getMapState(new MapStateDescriptor<>("map2", String.class, Double.class));
+//          time = getRuntimeContext().getState(new ValueStateDescriptor<>("time", Double.class));
+  }
+
+  @Override
+  public void processElement1(HashMap<String, Double> value, KeyedCoProcessFunction<Double, HashMap<String, Double>, HashMap<String, Double>, String>.Context ctx, Collector<String> out) throws Exception {
+    if (map2.isEmpty()) {
+      for (Map.Entry<String, Double> entry : value.entrySet()) {
+        map1.put(entry.getKey(), entry.getValue());
+      }
+    } else {
+      StringBuilder result = new StringBuilder();
+      for (Map.Entry<String, Double> entry : map2.entries()) {
+        result.append(entry).append(" ");
+      }
+      double total = value.get("total");
+      double calculatedP = 0.;
+      for (String key : new String[]{"0", "1", "2", "3"}) {
+        double weight = 0;
+        for (String key2 : new String[]{"11", "12"}) {
+          double share = Objects.requireNonNullElse(map2.get("share" + key2 + "_" + key), 1.);
+          weight += share * map2.get(key2);
+        }
+        calculatedP += (value.get(key) / (total == 0 ? 1 : total)) * weight;
+      }
+//            double batch = ctx.getCurrentKey();
+//            double runningProcessingTime = Objects.requireNonNullElse(time.value(), 0.);
+//            double newAverage = (calculatedP + runningProcessingTime) / batch;
+      //TODO check with Sukanya if the average processing time is also calculated with a running average
+
+      double B = 1 / ((1 / calculatedP) - total);
+//            double B = 1 / ((1 / newAverage) - total);
+//            time.update(runningProcessingTime + newAverage);
+//            out.collect(String.format("calculated p:%f%naverage processing time:%f%nB:%f%n%s%n%s%n", calculatedP, newAverage, (B > 0 ? B : Double.NaN), result, value));
+      out.collect(String.format("calculated p:%f%nB:%f%n%s%n%s%n", calculatedP, (B > 0 ? B : Double.NaN), result, value));
+    }
+  }
+
+  @Override
+  public void processElement2(HashMap<String, Double> value, KeyedCoProcessFunction<Double, HashMap<String, Double>, HashMap<String, Double>, String>.Context ctx, Collector<String> out) throws Exception {
+    if (map1.isEmpty()) {
+      for (Map.Entry<String, Double> entry : value.entrySet()) {
+        map2.put(entry.getKey(), entry.getValue());
+      }
+    } else {
+      StringBuilder result = new StringBuilder();
+      for (Map.Entry<String, Double> entry : map1.entries()) {
+        result.append(entry).append(" ");
+      }
+      double total = map1.get("total");
+      double calculatedP = 0.;
+      for (String key : new String[]{"0", "1", "2", "3"}) {
+        double weight = 0;
+        for (String key2 : new String[]{"11", "12"}) {
+          double share = Objects.requireNonNullElse(value.get("share" + key2 + "_" + key), 1.);
+          weight += share * value.get(key2);
+        }
+        calculatedP += (map1.get(key) / (total == 0 ? 1 : total)) * weight;
+      }
+//            double batch = ctx.getCurrentKey();
+//            double runningProcessingTime = Objects.requireNonNullElse(time.value(), 0.);
+//            double newAverage = (calculatedP + runningProcessingTime) / batch;
+
+      double B = 1 / ((1 / calculatedP) - total);
+//            double B = 1 / ((1 / newAverage) - total);
+//            time.update(runningProcessingTime + newAverage);
+      out.collect(String.format("calculated p:%f%nB:%f%n%s%n%s%n", calculatedP, (B > 0 ? B : Double.NaN), result, value));
+//            out.collect(String.format("calculated p:%f%naverage processing time:%f%nB:%f%n%s%n%s%n", calculatedP, newAverage, (B > 0 ? B : Double.NaN), result, value));
+    }
+  }
+}
+
 class Operator extends KeyedCoProcessFunction<Long, Measurement, String, Measurement> {
-  String[] inKeys = new String[]{"0", "1", "2", "3", "total"};
   String[] outKeys = new String[]{"11", "12", "total"};
   ListState<Measurement> zero;
   ListState<Measurement> first;
   ListState<Measurement> second;
   ListState<Measurement> third;
   int cycle = 1;
-  //  Map<String, List<Measurement>> eventLists = new HashMap<>(4);
   Map<String, Long> eventCounter = new HashMap<>(5);
   Map<String, Long> memory = new HashMap<>(5);
   HashMap<String, Double> outputRates = new HashMap<>(5);
@@ -89,9 +164,6 @@ class Operator extends KeyedCoProcessFunction<Long, Measurement, String, Measure
   double batch = 1;
 
   Operator(OutputTag<HashMap<String, Double>> output, OutputTag<HashMap<String, Double>> output2) {
-//    for (String key : inKeys) {
-//      eventLists.put(key, Collections.synchronizedList(new LinkedList<>()));
-//    }
     for (String key : outKeys) {
       eventCounter.put(key, 0L);
       memory.put(key, 0L);
@@ -134,12 +206,11 @@ class Operator extends KeyedCoProcessFunction<Long, Measurement, String, Measure
         }
         if (index < amountOfZeros - 1) {
           String message = String.format("%s%n%s%n%s%n", value, listOfZeros.get(index), listOfZeros.get(index + 1));
-          out.collect(new Measurement(11, message));
+          out.collect(new Measurement(11));
           String countKey = "11";
           String total = "total";
           eventCounter.put(countKey, eventCounter.get(countKey) + 1);
           eventCounter.put(total, eventCounter.get(total) + 1);
-//          eventLists.put(key, listOfZeros.subList(index + 2, amountOfZeros));
           zero.update(listOfZeros.subList(index + 2, amountOfZeros));
         } else {
           zero.update(listOfZeros.subList(index, amountOfZeros));
@@ -193,8 +264,7 @@ class Operator extends KeyedCoProcessFunction<Long, Measurement, String, Measure
         }
         if (index1 < size1 && index2 < size2) {
 
-          String message = String.format("%s%n%s%n%s%n", value, list1.get(index1), list2.get(index2));
-          out.collect(new Measurement(12, message));
+          out.collect(new Measurement(12));
           String countKey = "12";
           String total = "total";
           eventCounter.put(countKey, eventCounter.get(countKey) + 1);
@@ -383,27 +453,30 @@ public class DataStreamJob {
     DataStream<HashMap<String, Double>> lambda2 = op2.getSideOutput(outputTagOp1OutputRates);
     DataStream<HashMap<String, Double>> mu1 = op2.getSideOutput(outputTagOp1ProcessingRates);
 
-    lambda1.join(mu1)
-      .where(map -> map.get("batch"))
-      .equalTo(map -> map.get("batch"))
-      .window(TumblingEventTimeWindows.of(Duration.ofMillis(1)))
-      .apply(new JoinFunction<HashMap<String, Double>, HashMap<String, Double>, String>() {
-        @Override
-        public String join(HashMap<String, Double> first, HashMap<String, Double> second) throws Exception {
-          double total = first.get("total");
-          double result = 0.;
-          for (String key : new String[]{"0", "1", "2", "3"}) {
-            double weight = 0;
-            for (String key2 : new String[]{"11", "12"}) {
-              double share = Objects.requireNonNullElse(second.get("share" + key2 + "_" + key), 1.);
-              weight += share * second.get(key2);
-            }
-            result += (first.get(key) / (total == 0 ? 1 : total)) * weight;
-          }
-          double B = 1 / ((1 / result) - total);
-          return String.format("average processing time:%f%nB:%f%n%s%n%s%n", result, (B > 0 ? B : Double.NaN), first, second);
-        }
-      }).print();
+//    lambda1.join(mu1)
+//      .where(map -> map.get("batch"))
+//      .equalTo(map -> map.get("batch"))
+//      .window(TumblingEventTimeWindows.of(Duration.ofMillis(1)))
+//      .apply(new JoinFunction<HashMap<String, Double>, HashMap<String, Double>, String>() {
+//        @Override
+//        public String join(HashMap<String, Double> first, HashMap<String, Double> second) throws Exception {
+//          double total = first.get("total");
+//          double result = 0.;
+//          for (String key : new String[]{"0", "1", "2", "3"}) {
+//            double weight = 0;
+//            for (String key2 : new String[]{"11", "12"}) {
+//              double share = Objects.requireNonNullElse(second.get("share" + key2 + "_" + key), 1.);
+//              weight += share * second.get(key2);
+//            }
+//            result += (first.get(key) / (total == 0 ? 1 : total)) * weight;
+//          }
+//          double B = 1 / ((1 / result) - total);
+//          return String.format("average processing time:%f%nB:%f%n%s%n%s%n", result, (B > 0 ? B : Double.NaN), first, second);
+//        }
+//      }).print();
+
+    lambda1.keyBy(map -> map.get("batch")).connect(mu1.keyBy(map -> map.get("batch")))
+      .process(new Analyser()).print();
 
     lambda1.keyBy(map -> map.get("batch")).connect(lambda2.keyBy(map -> map.get("batch"))).process(new KeyedCoProcessFunction<Double, HashMap<String, Double>, HashMap<String, Double>, String>() {
       MapState<String, Double> map1;
