@@ -1,5 +1,6 @@
 package org.uni.potsdam.p1.types;
 
+import org.apache.flink.cep.nfa.aftermatch.AfterMatchSkipStrategy;
 import org.apache.flink.cep.pattern.Pattern;
 import org.apache.flink.cep.pattern.conditions.IterativeCondition;
 import org.apache.flink.cep.pattern.conditions.SimpleCondition;
@@ -13,7 +14,7 @@ public final class PatternCreator {
   }
 
   public static Pattern<Measurement, ?> seq(int first, int second, int third) {
-    return Pattern.<Measurement>begin("start")
+    return Pattern.<Measurement>begin("start", AfterMatchSkipStrategy.skipToNext())
       .where(SimpleCondition.of(meas1 -> meas1.machineId == first))
       .followedBy("middle")
       .where(SimpleCondition.of(meas2 -> meas2.machineId == second))
