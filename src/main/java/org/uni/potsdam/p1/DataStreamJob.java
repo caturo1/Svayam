@@ -22,25 +22,28 @@ import com.google.gson.*;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.OpenContext;
+import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
-import org.apache.flink.api.common.state.MapState;
-import org.apache.flink.api.common.state.MapStateDescriptor;
+import org.apache.flink.api.common.state.ValueState;
+import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
-import org.apache.flink.api.connector.sink2.Sink;
 import org.apache.flink.api.connector.source.util.ratelimit.RateLimiterStrategy;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.connector.datagen.source.DataGeneratorSource;
 import org.apache.flink.connector.datagen.source.GeneratorFunction;
+import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
+import org.apache.flink.connector.kafka.sink.KafkaSink;
+import org.apache.flink.connector.kafka.source.KafkaSource;
+import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.streaming.api.functions.co.KeyedCoProcessFunction;
-import org.apache.flink.streaming.api.functions.sink.PrintSink;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
-import org.uni.potsdam.p1.types.ComplexEvent;
 import org.uni.potsdam.p1.types.Measurement;
 
 import java.io.Serializable;
@@ -62,37 +65,33 @@ class EventJsonDeserializer implements JsonDeserializer<Measurement>, Serializab
   }
 }
 
-class Analyser extends KeyedCoProcessFunction<Double, HashMap<String, Double>, HashMap<String, Double>, String> {
-  MapState<String, Double> map1;
-  MapState<String, Double> map2;
+class Analyser extends KeyedCoProcessFunction<Double, HashMap<String, Double>, HashMap<String, Double>, HashMap<String, Double>> {
+  HashMap<String, Double> map1;
+  HashMap<String, Double> map2;
   String[] lambdaKeys;
   String[] muKeys;
-//        ValueState<Double> time;
+  String groupName;
 
+  OutputTag<String> sosOutput;
+  ValueState<Double> lastAverage;
 
-  public Analyser(String[] lambdaKeys, String[] muKeys) {
+  public Analyser(String groupName, String[] lambdaKeys, String[] muKeys, OutputTag<String> sosOutput) {
     this.lambdaKeys = lambdaKeys;
     this.muKeys = muKeys;
+    this.groupName = groupName;
+    this.sosOutput = sosOutput;
   }
 
   @Override
   public void open(Configuration conf) {
-    map1 = getRuntimeContext().getMapState(new MapStateDescriptor<>("map1", String.class, Double.class));
-    map2 = getRuntimeContext().getMapState(new MapStateDescriptor<>("map2", String.class, Double.class));
-//          time = getRuntimeContext().getState(new ValueStateDescriptor<>("time", Double.class));
+    lastAverage = getRuntimeContext().getState(new ValueStateDescriptor<>("lastAverage", Double.class));
   }
 
   @Override
-  public void processElement1(HashMap<String, Double> value, KeyedCoProcessFunction<Double, HashMap<String, Double>, HashMap<String, Double>, String>.Context ctx, Collector<String> out) throws Exception {
-    if (map2.isEmpty()) {
-      for (Map.Entry<String, Double> entry : value.entrySet()) {
-        map1.put(entry.getKey(), entry.getValue());
-      }
+  public void processElement1(HashMap<String, Double> value, KeyedCoProcessFunction<Double, HashMap<String, Double>, HashMap<String, Double>, HashMap<String, Double>>.Context ctx, Collector<HashMap<String, Double>> out) throws Exception {
+    if (map2 == null) {
+      map1 = value;
     } else {
-      StringBuilder result = new StringBuilder();
-      for (Map.Entry<String, Double> entry : map2.entries()) {
-        result.append(entry).append(" ");
-      }
       double total = value.get("total");
       double calculatedP = 0.;
       for (String key : lambdaKeys) {
@@ -103,30 +102,30 @@ class Analyser extends KeyedCoProcessFunction<Double, HashMap<String, Double>, H
         }
         calculatedP += (value.get(key) / (total == 0 ? 1 : total)) * weight;
       }
-//            double batch = ctx.getCurrentKey();
-//            double runningProcessingTime = Objects.requireNonNullElse(time.value(), 0.);
-//            double newAverage = (calculatedP + runningProcessingTime) / batch;
-      //TODO check with Sukanya if the average processing time is also calculated with a running average
-
-      double B = 1 / ((1 / calculatedP) - total);
-//            double B = 1 / ((1 / newAverage) - total);
-//            time.update(runningProcessingTime + newAverage);
-//            out.collect(String.format("calculated p:%f%naverage processing time:%f%nB:%f%n%s%n%s%n", calculatedP, newAverage, (B > 0 ? B : Double.NaN), result, value));
-      out.collect(String.format("calculated p:%fs%nB:%fs%n%s%n%s%n", calculatedP, (B > 0 ? B : Double.NaN), result, value));
+      double oldValue = Objects.requireNonNullElse(lastAverage.value(), 0.);
+      double B = 1 / ((1 / (calculatedP == 0 ? 1 : calculatedP)) - total);
+      if (oldValue != 0.) {
+        if (calculatedP / oldValue >= 0.1) {
+          value.put("B", B);
+          out.collect(value);
+          map2.put("mu", 1 / calculatedP);
+          out.collect(map2);
+          ctx.output(sosOutput, groupName);
+          map2 = null;
+        }
+        ctx.output(sosOutput, groupName + "B: " + B + "p: " + calculatedP);
+      }
+      lastAverage.update(calculatedP);
+      double ratio = calculatedP / (oldValue == 0 ? 1 : oldValue);
+      ctx.output(sosOutput, groupName + " B: " + B + " p: " + calculatedP + " ratio: " + ratio);
     }
   }
 
   @Override
-  public void processElement2(HashMap<String, Double> value, KeyedCoProcessFunction<Double, HashMap<String, Double>, HashMap<String, Double>, String>.Context ctx, Collector<String> out) throws Exception {
-    if (map1.isEmpty()) {
-      for (Map.Entry<String, Double> entry : value.entrySet()) {
-        map2.put(entry.getKey(), entry.getValue());
-      }
+  public void processElement2(HashMap<String, Double> value, KeyedCoProcessFunction<Double, HashMap<String, Double>, HashMap<String, Double>, HashMap<String, Double>>.Context ctx, Collector<HashMap<String, Double>> out) throws Exception {
+    if (map1 == null) {
+      map2 = value;
     } else {
-      StringBuilder result = new StringBuilder();
-      for (Map.Entry<String, Double> entry : map1.entries()) {
-        result.append(entry).append(" ");
-      }
       double total = map1.get("total");
       double calculatedP = 0.;
       for (String key : lambdaKeys) {
@@ -137,15 +136,22 @@ class Analyser extends KeyedCoProcessFunction<Double, HashMap<String, Double>, H
         }
         calculatedP += (map1.get(key) / (total == 0 ? 1 : total)) * weight;
       }
-//            double batch = ctx.getCurrentKey();
-//            double runningProcessingTime = Objects.requireNonNullElse(time.value(), 0.);
-//            double newAverage = (calculatedP + runningProcessingTime) / batch;
-
-      double B = 1 / ((1 / calculatedP) - total);
-//            double B = 1 / ((1 / newAverage) - total);
-//            time.update(runningProcessingTime + newAverage);
-      out.collect(String.format("calculated p:%f%nB:%f%n%s%n%s%n", calculatedP, (B > 0 ? B : Double.NaN), result, value));
-//            out.collect(String.format("calculated p:%f%naverage processing time:%f%nB:%f%n%s%n%s%n", calculatedP, newAverage, (B > 0 ? B : Double.NaN), result, value));
+      double oldValue = Objects.requireNonNullElse(lastAverage.value(), 0.);
+      double B = 1 / ((1 / (calculatedP == 0 ? 1 : calculatedP)) - total);
+      if (oldValue != 0.) {
+        if (calculatedP / oldValue >= 0.1) {
+          map1.put("B", B);
+          out.collect(map1);
+          value.put("mu", 1 / calculatedP);
+          out.collect(value);
+          ctx.output(sosOutput, groupName);
+          map1 = null;
+        }
+        ctx.output(sosOutput, groupName + "B: " + B + "p: " + calculatedP);
+      }
+      lastAverage.update(calculatedP);
+      double ratio = calculatedP / (oldValue == 0 ? 1 : oldValue);
+      ctx.output(sosOutput, groupName + " B: " + B + " p: " + calculatedP + " ratio: " + ratio);
     }
   }
 }
@@ -162,15 +168,16 @@ class ComplexOperator extends KeyedCoProcessFunction<Long, Measurement, String, 
   Map<String, Long> processingTime = new HashMap<>(5);
   Map<String, Long> processingMemory = new HashMap<>(5);
   HashMap<String, Double> processingRates = new HashMap<>(2);
+  String groupName;
 
   OutputTag<HashMap<String, Double>> outputTagProcessingRates;
-  OutputTag<HashMap<String, Double>> outputTagEventCounts;
+  OutputTag<HashMap<String, Double>> sosOutput;
 
   final int EVENT_BATCH = 100;
   boolean bound = false;
   double batch = 1;
 
-  ComplexOperator(String[] outKeys, OutputTag<HashMap<String, Double>> outputTagProcessingRates, OutputTag<HashMap<String, Double>> outputTagEventCounts) {
+  ComplexOperator(String groupName, String[] outKeys, OutputTag<HashMap<String, Double>> outputTagProcessingRates, OutputTag<HashMap<String, Double>> sosOutput) {
     this.outKeys = outKeys;
     for (String key : outKeys) {
       eventCounter.put(key, 0L);
@@ -181,7 +188,8 @@ class ComplexOperator extends KeyedCoProcessFunction<Long, Measurement, String, 
       processingMemory.put(key, 0L);
     }
     this.outputTagProcessingRates = outputTagProcessingRates;
-    this.outputTagEventCounts = outputTagEventCounts;
+    this.sosOutput = sosOutput;
+    this.groupName = groupName;
   }
 
   @Override
@@ -196,7 +204,7 @@ class ComplexOperator extends KeyedCoProcessFunction<Long, Measurement, String, 
       bound = true;
       ctx.timerService().registerProcessingTimeTimer(ctx.timerService().currentProcessingTime() + TimeUnit.SECONDS.toMillis(1));
     }
-    long time = System.currentTimeMillis();
+//    long time = System.currentTimeMillis();
     int type = value.machineId;
     Integer key2 = Integer.valueOf(outKeys[0]);
     String outkey = key2.toString();
@@ -227,7 +235,8 @@ class ComplexOperator extends KeyedCoProcessFunction<Long, Measurement, String, 
       eventCounter.put(outkey, eventCounter.get(outkey) + 1);
       eventCounter.put(total, eventCounter.get(total) + 1);
     }
-    long ptimeC = System.currentTimeMillis() - time;
+    long ptimeC = System.currentTimeMillis() - value.eventTime;
+    //TODO test time difference using the event times
     processingTime.put(outkey.toString(), processingTime.get(outkey.toString()) + ptimeC);
     long count = processingTime.get(total) + 1;
     processingTime.put(total, count);
@@ -235,36 +244,39 @@ class ComplexOperator extends KeyedCoProcessFunction<Long, Measurement, String, 
       processingRates.put("batch", batch);
       outputRates.put("batch", batch);
       ctx.output(outputTagProcessingRates, processingRates);
-      ctx.output(outputTagEventCounts, outputRates);
       batch++;
+      for (String elem : outKeys) {
+        processingMemory.put(elem, 0L);
+        processingTime.put(elem, 0L);
+        eventCounter.put(elem, 0L);
+        memory.put(elem, 0L);
+      }
+      cycle = 1;
     }
 
   }
 
   @Override
   public void processElement2(String value, KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
+    if (!value.equals(groupName)) {
+      ctx.output(sosOutput, processingRates);
+      ctx.output(sosOutput, outputRates);
+    }
   }
 
   @Override
   public void onTimer(long timestamp, OnTimerContext ctx, Collector<Measurement> out) throws Exception {
     ctx.timerService().registerProcessingTimeTimer(ctx.timerService().currentProcessingTime() + TimeUnit.SECONDS.toMillis(1));
-//    String beggining = processingMemory.toString();
-//    HashMap<String, Double> increase = new HashMap<>(5);
     for (String key : outKeys) {
-//      double oldRate = outputRates.get(key);
       long oldTime = processingMemory.get(key);
       double newTime = (double) (oldTime + (processingTime.get(key) - oldTime)) / ((key.equals("total") ? 1 : 1000) * cycle);
       processingRates.put(key, newTime);
       processingMemory.put(key, processingTime.get(key));
-//      double relation = (newValue / (oldRate == 0 ? 1 : oldRate));
-//      increase.put(key, relation)
       long oldValue = memory.get(key);
       double newValue = (double) (oldValue + (eventCounter.get(key) - oldValue)) / cycle;
       outputRates.put(key, newValue);
       memory.put(key, eventCounter.get(key));
-      ;
     }
-//    ctx.output(outX, String.format("%s%n%s%n%s%n", processingTime.toString(), beggining, processingRates.toString()));
     cycle++;
   }
 }
@@ -276,34 +288,30 @@ class Operator extends KeyedCoProcessFunction<Long, Measurement, String, Measure
   ListState<Measurement> second;
   ListState<Measurement> third;
   int cycle = 1;
-  Map<String, Long> eventCounter = new HashMap<>(5);
-  Map<String, Long> memory = new HashMap<>(5);
-  HashMap<String, Double> outputRates = new HashMap<>(5);
   Map<String, Long> processingTime = new HashMap<>(5);
   Map<String, Long> processingMemory = new HashMap<>(5);
   HashMap<String, Double> processingRates = new HashMap<>(2);
+  String groupName;
 
   OutputTag<HashMap<String, Double>> outputTagProcessingRates;
-  OutputTag<HashMap<String, Double>> outputTagEventCounts;
   OutputTag<Measurement> secondOutput;
+  OutputTag<HashMap<String, Double>> sosOutput;
 
   final int EVENT_BATCH = 100;
   boolean bound = false;
   double batch = 1;
 
-  Operator(String[] keys, OutputTag<HashMap<String, Double>> outputTagProcessingRates, OutputTag<HashMap<String, Double>> outputTagEventCounts, OutputTag<Measurement> secondOutput) {
+  Operator(String groupName, String[] keys, OutputTag<HashMap<String, Double>> outputTagProcessingRates, OutputTag<Measurement> secondOutput, OutputTag<HashMap<String, Double>> sosOutput) {
     outKeys = keys;
     for (String key : outKeys) {
-      eventCounter.put(key, 0L);
-      memory.put(key, 0L);
-      outputRates.put(key, 0.);
       processingRates.put(key, 0.);
       processingTime.put(key, 0L);
       processingMemory.put(key, 0L);
     }
+    this.groupName = groupName;
     this.outputTagProcessingRates = outputTagProcessingRates;
-    this.outputTagEventCounts = outputTagEventCounts;
     this.secondOutput = secondOutput;
+    this.sosOutput = sosOutput;
   }
 
   @Override
@@ -320,7 +328,6 @@ class Operator extends KeyedCoProcessFunction<Long, Measurement, String, Measure
       bound = true;
       ctx.timerService().registerProcessingTimeTimer(ctx.timerService().currentProcessingTime() + TimeUnit.SECONDS.toMillis(1));
     }
-//    String key = String.valueOf(value.machineId);
     String outkey1 = outKeys[0];
     String outkey2 = outKeys[1];
     String total = "total";
@@ -340,22 +347,20 @@ class Operator extends KeyedCoProcessFunction<Long, Measurement, String, Measure
         if (index < amountOfZeros - 1) {
           Measurement secondCandidate = listOfZeros.get(index + 1);
           long diff = value.eventTime - secondCandidate.eventTime;
-//          out.collect(new Measurement(Integer.valueOf(outkey1), value.source));
           if (diff > 0 && diff <= 10_000) {
             out.collect(new Measurement(Integer.valueOf(outkey1), String.format("%s%n%s%n%s%n", value, secondCandidate, firstCandidate), 2));
-            eventCounter.put(outkey1, eventCounter.get(outkey1) + 1);
-            eventCounter.put(total, eventCounter.get(total) + 1);
             zero.update(listOfZeros.subList(index + 2, amountOfZeros));
           } else {
             zero.update(listOfZeros.subList(index, amountOfZeros));
           }
-//          /*String*/ countKey = outkey1;
         } else {
           zero.update(listOfZeros.subList(index, amountOfZeros));
         }
       }
     }
-    long ptimeQ11 = System.currentTimeMillis() - time;
+    long secondMeasurement = System.currentTimeMillis();
+//    long ptimeQ11 = System.currentTimeMillis() - time;
+    long ptimeQ11 = secondMeasurement - value.eventTime;
 
     //check for pattern2
     time = System.currentTimeMillis();
@@ -402,13 +407,7 @@ class Operator extends KeyedCoProcessFunction<Long, Measurement, String, Measure
         }
         if (index1 < size1 && index2 < size2) {
 
-//          ctx.output(secondOutput, new Measurement(Integer.valueOf(outkey2), value.source));
-          long counter = eventCounter.get(total) + 1;
           ctx.output(secondOutput, new Measurement(Integer.valueOf(outkey2), String.format("%s%n%s%n%s%n", value, list1.get(index1), list2.get(index2)), 2));
-//          String countKey = "12";
-//          String total = "total";
-          eventCounter.put(outkey2, eventCounter.get(outkey2) + 1);
-          eventCounter.put(total, counter);
 
           otherValueReference1.update(list1.subList(index1 + 1, size1));
           otherValueReference2.update(list2.subList(index2 + 1, size2));
@@ -424,7 +423,8 @@ class Operator extends KeyedCoProcessFunction<Long, Measurement, String, Measure
 
       }
     }
-    long ptimeQ12 = System.currentTimeMillis() - time;
+//    long ptimeQ12 = System.currentTimeMillis() - time;
+    long ptimeQ12 = System.currentTimeMillis() - (secondMeasurement - time) - value.eventTime;
 
     processingTime.put(outkey1, processingTime.get(outkey1) + ptimeQ11);
     processingTime.put(outkey2, processingTime.get(outkey2) + ptimeQ12);
@@ -434,61 +434,126 @@ class Operator extends KeyedCoProcessFunction<Long, Measurement, String, Measure
 
     if (count % EVENT_BATCH == 0) {
       processingRates.put("batch", batch);
-      outputRates.put("batch", batch);
       ctx.output(outputTagProcessingRates, processingRates);
-      ctx.output(outputTagEventCounts, outputRates);
       batch++;
+      for (String elem : outKeys) {
+        processingMemory.put(elem, 0L);
+        processingTime.put(elem, 0L);
+      }
+      cycle = 1;
     }
   }
 
   @Override
   public void processElement2(String value, KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
-
+    if (!value.equals(groupName)) {
+      ctx.output(sosOutput, processingRates);
+    }
   }
 
   @Override
   public void onTimer(long timestamp, OnTimerContext ctx, Collector<Measurement> out) throws Exception {
     ctx.timerService().registerProcessingTimeTimer(ctx.timerService().currentProcessingTime() + TimeUnit.SECONDS.toMillis(1));
-//    String beggining = processingMemory.toString();
-//    HashMap<String, Double> increase = new HashMap<>(5);
     for (String key : outKeys) {
-//      double oldRate = outputRates.get(key);
       long oldTime = processingMemory.get(key);
       double newTime = (double) (oldTime + (processingTime.get(key) - oldTime)) / ((key.equals("total") ? 1 : 1000) * cycle);
       processingRates.put(key, newTime);
       processingMemory.put(key, processingTime.get(key));
-//      double relation = (newValue / (oldRate == 0 ? 1 : oldRate));
-//      increase.put(key, relation)
-      long oldValue = memory.get(key);
-      double newValue = (double) (oldValue + (eventCounter.get(key) - oldValue)) / cycle;
-      outputRates.put(key, newValue);
-      memory.put(key, eventCounter.get(key));
-      ;
     }
-//    ctx.output(outX, String.format("%s%n%s%n%s%n", processingTime.toString(), beggining, processingRates.toString()));
     cycle++;
   }
 
 
 }
 
-class SourceCounter extends ProcessFunction<Measurement, Measurement> {
-  String[] keys = new String[]{"0", "1", "2", "3", "total"};
+class Counter extends KeyedCoProcessFunction<Long, Measurement, String, Measurement> {
+
+  String[] keys;
   int cycle = 1;
   Map<String, Long> eventCounter = new HashMap<>(5);
   Map<String, Long> memory = new HashMap<>(5);
   HashMap<String, Double> outputRates = new HashMap<>(5);
-  OutputTag<HashMap<String, Double>> outputTagProcessingRatest;
+  OutputTag<HashMap<String, Double>> outputTagProcessingRates;
+  OutputTag<HashMap<String, Double>> sosOutput;
   final int EVENT_BATCH = 100;
   double batch = 1;
+  String groupName;
 
-  SourceCounter(OutputTag<HashMap<String, Double>> output) {
+  Counter(String groupName, String[] keys, OutputTag<HashMap<String, Double>> output, OutputTag<HashMap<String, Double>> sosOutput) {
+    this.keys = keys;
     for (String key : keys) {
       eventCounter.put(key, 0L);
       memory.put(key, 0L);
       outputRates.put(key, 0.);
     }
-    outputTagProcessingRatest = output;
+    outputTagProcessingRates = output;
+    this.sosOutput = sosOutput;
+    this.groupName = groupName;
+  }
+
+  boolean bound = false;
+
+  @Override
+  public void processElement1(Measurement value, KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
+    if (!bound) {
+      bound = true;
+      ctx.timerService().registerProcessingTimeTimer(ctx.timerService().currentProcessingTime() + TimeUnit.SECONDS.toMillis(1));
+    }
+    String key = String.valueOf(value.machineId);
+    eventCounter.put(key, eventCounter.get(key) + 1);
+    long count = eventCounter.get("total") + 1;
+    eventCounter.put("total", count);
+    out.collect(new Measurement(value));
+    if (count % EVENT_BATCH == 0) {
+      outputRates.put("batch", batch);
+      ctx.output(outputTagProcessingRates, outputRates);
+      batch++;
+      for (String elem : keys) {
+        memory.put(elem, 0L);
+        eventCounter.put(elem, 0L);
+      }
+      cycle = 1;
+    }
+  }
+
+  @Override
+  public void processElement2(String value, KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
+    if (!value.equals(groupName)) {
+      ctx.output(sosOutput, outputRates);
+    }
+  }
+
+  @Override
+  public void onTimer(long timestamp, OnTimerContext ctx, Collector<Measurement> out) throws Exception {
+    ctx.timerService().registerProcessingTimeTimer(ctx.timerService().currentProcessingTime() + TimeUnit.SECONDS.toMillis(1));
+    for (String key : keys) {
+      long oldValue = memory.get(key);
+      double newValue = (double) (oldValue + (eventCounter.get(key) - oldValue)) / cycle;
+      outputRates.put(key, newValue);
+      memory.put(key, eventCounter.get(key));
+    }
+    cycle++;
+  }
+}
+
+class SourceCounter extends ProcessFunction<Measurement, Measurement> {
+  String[] keys;
+  int cycle = 1;
+  Map<String, Long> eventCounter = new HashMap<>(5);
+  Map<String, Long> memory = new HashMap<>(5);
+  HashMap<String, Double> outputRates = new HashMap<>(5);
+  OutputTag<HashMap<String, Double>> outputTagProcessingRates;
+  final int EVENT_BATCH = 100;
+  double batch = 1;
+
+  SourceCounter(OutputTag<HashMap<String, Double>> output, String[] keys) {
+    this.keys = keys;
+    for (String key : keys) {
+      eventCounter.put(key, 0L);
+      memory.put(key, 0L);
+      outputRates.put(key, 0.);
+    }
+    outputTagProcessingRates = output;
   }
 
   boolean bound = false;
@@ -506,7 +571,7 @@ class SourceCounter extends ProcessFunction<Measurement, Measurement> {
     out.collect(new Measurement(value));
     if (count % EVENT_BATCH == 0) {
       outputRates.put("batch", batch);
-      ctx.output(outputTagProcessingRatest, outputRates);
+      ctx.output(outputTagProcessingRates, outputRates);
       batch++;
     }
   }
@@ -525,8 +590,6 @@ class SourceCounter extends ProcessFunction<Measurement, Measurement> {
 //      double relation = (newValue / (oldRate == 0 ? 1 : oldRate));
 //      increase.put(key, relation);
     }
-//    ctx.output(outputTagProcessingRates, outputRates);
-//    ctx.output((OutputTag<String>) outputTagProcessingRates, String.format("%s%n%s%n%s%n%s%n", eventCounter.toString(), beggining, outputRates.toString(), increase.toString()));
     cycle++;
   }
 }
@@ -548,10 +611,36 @@ public class DataStreamJob {
     return new Measurement((int) (Math.random() * 4), 2, index);
   };
 
+  private static final GeneratorFunction<Long, String>
+    SOS_GENERATOR = index -> "sos";
   private final List<DataGeneratorSource<Measurement>> sources = new ArrayList<>();
-  private final List<Sink<ComplexEvent>> sinks = new ArrayList<>();
 
-  private static final String kafkaAddress = "localhost:9092";
+  private static final String kafkaAddress = "kafka1:19092";
+
+  KafkaSource<String> globalChannelIn = KafkaSource.<String>builder()
+    .setBootstrapServers(kafkaAddress)
+    .setTopics("global")
+    .setStartingOffsets(OffsetsInitializer.earliest())
+    .setValueOnlyDeserializer(new SimpleStringSchema())
+    .build();
+  //
+  KafkaSink<String> control = KafkaSink.<String>builder()
+    .setBootstrapServers(kafkaAddress)
+    .setRecordSerializer(KafkaRecordSerializationSchema.builder()
+      .setTopic("globalOut")
+      .setValueSerializationSchema(new SimpleStringSchema())
+      .build()
+    )
+    .build();
+
+  KafkaSink<String> globalChannelOut = KafkaSink.<String>builder()
+    .setBootstrapServers(kafkaAddress)
+    .setRecordSerializer(KafkaRecordSerializationSchema.builder()
+      .setTopic("global")
+      .setValueSerializationSchema(new SimpleStringSchema())
+      .build()
+    )
+    .build();
 
   public DataStreamJob(int numberOfSources, int numberOfSinks) {
     for (int i = 0; i < numberOfSources; i++) {
@@ -561,9 +650,7 @@ public class DataStreamJob {
         RateLimiterStrategy.perSecond(100),
         TypeInformation.of(Measurement.class)));
     }
-    for (int i = 0; i < numberOfSinks; i++) {
-      sinks.add(new PrintSink<>());
-    }
+
   }
 
   public static void main(String[] args) throws Exception {
@@ -572,102 +659,103 @@ public class DataStreamJob {
   }
 
   public JobExecutionResult execute() throws Exception {
-    final StreamExecutionEnvironment env =
-      StreamExecutionEnvironment.getExecutionEnvironment();
+
+    // start execution environment
+    final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
     // define Sources
+    KeyedStream<String, Integer> global = env.fromSource(globalChannelIn, WatermarkStrategy.noWatermarks(), "global").keyBy(s1 -> 1);
+
     DataStream<Measurement> source1 = env.fromSource(
       sources.get(0),
       WatermarkStrategy.noWatermarks(),
-//      WatermarkStrategy.<Measurement>forMonotonousTimestamps()
-//        .withTimestampAssigner((meas, t) -> meas.eventTime),
       "Generator1").name("Source1");
 
     DataStream<Measurement> source2 = env.fromSource(
       sources.get(1),
       WatermarkStrategy.noWatermarks(),
-//      WatermarkStrategy.<Measurement>forMonotonousTimestamps()
-//        .withTimestampAssigner((meas, t) -> meas.eventTime),
       "Generator2").name("Source2");
 
-    // define side outputs
-
-    // Sources
-    final OutputTag<HashMap<String, Double>> outputTagSource1OutputRates = new OutputTag<>("out_source1") {
+    // Define side output channels for interprocess communication
+    final OutputTag<HashMap<String, Double>> toCoordinator = new OutputTag<>("out_to_coordinator") {
     };
-    final OutputTag<HashMap<String, Double>> outputTagSource2OutputRates = new OutputTag<>("out_source2") {
+    final OutputTag<String> toKafka = new OutputTag<>("out_to_kafka") {
     };
-
-    // Operator 1
-    final OutputTag<HashMap<String, Double>> outputTagOp1ProcessingRates = new OutputTag<>("out_op1_ptimes") {
+    final OutputTag<HashMap<String, Double>> toAnalyser1 = new OutputTag<>("out_to_analyser1") {
     };
-    final OutputTag<HashMap<String, Double>> outputTagOp1OutputRates = new OutputTag<>("out_op1_lambdas") {
+    final OutputTag<HashMap<String, Double>> toAnalyser2 = new OutputTag<>("out_to_analyser2") {
     };
-    final OutputTag<Measurement> secondOutputOp1 = new OutputTag<>("out_op1_secondEdge") {
+    final OutputTag<HashMap<String, Double>> toAnalyser3 = new OutputTag<>("out_to_analyser3") {
     };
-
-    // Operator 2
-    final OutputTag<HashMap<String, Double>> outputTagOp2ProcessingRates = new OutputTag<>("out_op2_ptimes") {
+    final OutputTag<HashMap<String, Double>> toAnalyser4 = new OutputTag<>("out_to_analyser4") {
     };
-    final OutputTag<HashMap<String, Double>> outputTagOp2OutputRates = new OutputTag<>("out_op2_lambdas") {
-    };
-    final OutputTag<Measurement> secondOutputOp2 = new OutputTag<>("out_op2_secondEdge") {
-    };
-
-    // Operator 3
-    final OutputTag<HashMap<String, Double>> outputTagOp3ProcessingRates = new OutputTag<>("out_op3_ptimes") {
-    };
-    final OutputTag<HashMap<String, Double>> outputTagOp3OutputRates = new OutputTag<>("out_op3_lambdas") {
-    };
-
-    // Operator 4
-    final OutputTag<HashMap<String, Double>> outputTagOp4ProcessingRates = new OutputTag<>("out_op4_ptimes") {
-    };
-    final OutputTag<HashMap<String, Double>> outputTagOp4OutputRates = new OutputTag<>("out_op4_lambdas") {
+    final OutputTag<Measurement> toOperator4 = new OutputTag<>("out_to_operator4") {
     };
 
     // count the output rates of the sources per second and forward the events to the operators
-    SingleOutputStreamOperator<Measurement> counter1 = source1.keyBy(me -> 1).process(new SourceCounter(outputTagSource1OutputRates));
-    SingleOutputStreamOperator<Measurement> counter2 = source2.keyBy(me -> 1).process(new SourceCounter(outputTagSource2OutputRates));
+    SingleOutputStreamOperator<Measurement> counter1 = source1.keyBy(me -> 1).connect(global).process(new Counter("o1", new String[]{"0", "1", "2", "3", "total"}, toAnalyser1, toCoordinator));
+    SingleOutputStreamOperator<Measurement> counter2 = source2.keyBy(me -> 1).connect(global).process(new Counter("o2", new String[]{"0", "1", "2", "3", "total"}, toAnalyser2, toCoordinator));
 
-    DataStream<HashMap<String, Double>> lambdaSource1 = counter1.getSideOutput(outputTagSource1OutputRates);
-    DataStream<HashMap<String, Double>> lambdaSource2 = counter2.getSideOutput(outputTagSource2OutputRates);
+    DataStream<HashMap<String, Double>> lambdaSource1 = counter1.getSideOutput(toAnalyser1);
+    DataStream<HashMap<String, Double>> lambdaSource2 = counter2.getSideOutput(toAnalyser2);
 
-    DataStream<String> uff = env.fromData("").keyBy(s -> 1);
 
     // set operators 1 and 2 and collect both their processing (mu) and their output rates (lambda)
-    SingleOutputStreamOperator<Measurement> operator1 = counter1.keyBy(me -> 1).connect(uff).process(new Operator(new String[]{"11", "12", "total"}, outputTagOp1ProcessingRates, outputTagOp1OutputRates, secondOutputOp1));
-    DataStream<Measurement> operator1SecondOutput = operator1.getSideOutput(secondOutputOp1);
-    DataStream<HashMap<String, Double>> lambdaOperator1 = operator1.getSideOutput(outputTagOp1OutputRates);
-    DataStream<HashMap<String, Double>> muOperator1 = operator1.getSideOutput(outputTagOp1ProcessingRates);
+    SingleOutputStreamOperator<Measurement> operator1 = counter1.keyBy(me -> 1).connect(global).process(new Operator("o1", new String[]{"11", "12", "total"}, toAnalyser1, toOperator4, toCoordinator));
+    DataStream<Measurement> operator1SecondOutput = operator1.getSideOutput(toOperator4);
+    DataStream<HashMap<String, Double>> muOperator1 = operator1.getSideOutput(toAnalyser1);
 
-    SingleOutputStreamOperator<Measurement> operator2 = counter2.keyBy(me -> 1).connect(uff).process(new Operator(new String[]{"21", "22", "total"}, outputTagOp2ProcessingRates, outputTagOp2OutputRates, secondOutputOp2));
-    DataStream<Measurement> operator2SecondOutput = operator2.getSideOutput(secondOutputOp2);
-    DataStream<HashMap<String, Double>> lambdaOperator2 = operator2.getSideOutput(outputTagOp2OutputRates);
-    DataStream<HashMap<String, Double>> muOperator2 = operator2.getSideOutput(outputTagOp2ProcessingRates);
-
-//    counter1.print();
+    SingleOutputStreamOperator<Measurement> operator2 = counter2.keyBy(me -> 1).connect(global).process(new Operator("o2", new String[]{"21", "22", "total"}, toAnalyser2, toOperator4, toCoordinator));
+    DataStream<Measurement> operator2SecondOutput = operator2.getSideOutput(toOperator4);
+    DataStream<HashMap<String, Double>> muOperator2 = operator2.getSideOutput(toAnalyser2);
 
     // connect the stream of output rates of the sources with the stream of processing rates of the operators
-    lambdaSource1.keyBy(map -> map.get("batch")).connect(muOperator1.keyBy(map -> map.get("batch")))
-      .process(new Analyser(new String[]{"0", "1", "2", "3"}, new String[]{"11", "12"}));
+    SingleOutputStreamOperator<HashMap<String, Double>> analyser1 = lambdaSource1.keyBy(map -> map.get("batch")).connect(muOperator1.keyBy(map -> map.get("batch")))
+      .process(new Analyser("o1", new String[]{"0", "1", "2", "3"}, new String[]{"11", "12"}, toKafka));
 
-    lambdaSource2.keyBy(map -> map.get("batch")).connect(muOperator2.keyBy(map -> map.get("batch")))
-      .process(new Analyser(new String[]{"0", "1", "2", "3"}, new String[]{"21", "22"}));
+    SingleOutputStreamOperator<HashMap<String, Double>> analyser2 = lambdaSource2.keyBy(map -> map.get("batch")).connect(muOperator2.keyBy(map -> map.get("batch")))
+      .process(new Analyser("o2", new String[]{"0", "1", "2", "3"}, new String[]{"21", "22"}, toKafka));
+
+    // count the input rates for operators 3 and 4
+    SingleOutputStreamOperator<Measurement> counter3 = operator1.union(operator2).keyBy(me -> 1).connect(global).process(new Counter("o3", new String[]{"11", "21", "total"}, toAnalyser3, toCoordinator));
+    SingleOutputStreamOperator<Measurement> counter4 = operator1SecondOutput.union(operator2SecondOutput).keyBy(me -> 1).connect(global).process(new Counter("o4", new String[]{"12", "22", "total"}, toAnalyser4, toCoordinator));
 
     // set operators 3 and 4 and collect both their processing (mu) and their output rates (lambda)
-    SingleOutputStreamOperator<Measurement> operator3 = operator1.union(operator2).keyBy(me -> 1L).connect(uff.keyBy(s -> 1L)).process(
-      new ComplexOperator(new String[]{"1000", "total"}, outputTagOp3ProcessingRates, outputTagOp3OutputRates));
-    DataStream<HashMap<String, Double>> lambdaOperator3 = operator3.getSideOutput(outputTagOp3OutputRates);
-    DataStream<HashMap<String, Double>> muOperator3 = operator3.getSideOutput(outputTagOp3ProcessingRates);
+    SingleOutputStreamOperator<Measurement> operator3 = counter3.keyBy(me -> 1).connect(global).process(
+      new ComplexOperator("o3", new String[]{"1000", "total"}, toAnalyser3, toCoordinator));
+    DataStream<HashMap<String, Double>> muOperator3 = operator3.getSideOutput(toAnalyser3);
 
-    SingleOutputStreamOperator<Measurement> operator4 = operator1SecondOutput.union(operator2SecondOutput).keyBy(me -> 1L).connect(uff.keyBy(s -> 1L)).process(
-      new ComplexOperator(new String[]{"2000", "total"}, outputTagOp4ProcessingRates, outputTagOp4OutputRates));
-    DataStream<HashMap<String, Double>> lambdaOperator4 = operator4.getSideOutput(outputTagOp4OutputRates);
-    DataStream<HashMap<String, Double>> muOperator4 = operator4.getSideOutput(outputTagOp4ProcessingRates);
+    SingleOutputStreamOperator<Measurement> operator4 = counter4.keyBy(me -> 1).connect(global).process(
+      new ComplexOperator("o4", new String[]{"2000", "total"}, toAnalyser4, toCoordinator));
+    DataStream<HashMap<String, Double>> muOperator4 = operator4.getSideOutput(toAnalyser4);
 
-    //TODO add 2 SourceCounters before operators 3 and 4 to determine their real input rates.
-    //TODO remove the part of the Operator class which calculates the input rates.
+    // connect the stream of output rates of the sources with the stream of processing rates of the operators
+    SingleOutputStreamOperator<HashMap<String, Double>> analyser3 = counter3.getSideOutput(toAnalyser3).keyBy(map -> map.get("batch")).connect(muOperator3.keyBy(map -> map.get("batch")))
+      .process(new Analyser("o3", new String[]{"11", "21"}, new String[]{"1000"}, toKafka));
+
+    SingleOutputStreamOperator<HashMap<String, Double>> analyser4 = counter4.getSideOutput(toAnalyser4).keyBy(map -> map.get("batch")).connect(muOperator4.keyBy(map -> map.get("batch")))
+      .process(new Analyser("o4", new String[]{"12", "22"}, new String[]{"2000"}, toKafka));
+
+    analyser1.union(analyser2).union(analyser3).union(analyser4).map(HashMap::toString).sinkTo(globalChannelOut);
+//    analyser1.getSideOutput(toKafka)
+//      .union(analyser2.getSideOutput(toKafka))
+//      .union(analyser3.getSideOutput(toKafka))
+//      .union(analyser4.getSideOutput(toKafka))
+//      .sinkTo(control);
+
+    analyser1.union(analyser2)
+      .union(analyser3)
+      .union(analyser4)
+      .union(counter1.getSideOutput(toCoordinator))
+      .union(counter2.getSideOutput(toCoordinator))
+      .union(counter3.getSideOutput(toCoordinator))
+      .union(counter4.getSideOutput(toCoordinator))
+      .union(operator1.getSideOutput(toCoordinator))
+      .union(operator2.getSideOutput(toCoordinator))
+      .union(operator3.getSideOutput(toCoordinator))
+      .union(operator4.getSideOutput(toCoordinator))
+      .map(map -> map.toString())
+      .sinkTo(control);
 
     // generate complex events
 //    operator1.keyBy(me -> 1).connect(operator2.keyBy(me -> 1)).process(
