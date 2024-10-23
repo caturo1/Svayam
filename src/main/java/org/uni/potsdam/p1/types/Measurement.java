@@ -49,7 +49,7 @@ public class Measurement implements Serializable {
   public Measurement(Measurement toCopy) {
     realMachineId = toCopy.realMachineId;
     machineId = toCopy.machineId;
-    eventTime = System.currentTimeMillis();
+    eventTime = toCopy.eventTime;/*System.currentTimeMillis();*/
     source = toCopy.source;
   }
 
