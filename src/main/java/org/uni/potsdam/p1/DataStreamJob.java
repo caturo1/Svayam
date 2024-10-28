@@ -588,19 +588,18 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
   MapState<String, Double> map1;
   MapState<String, Double> map2;
   String[] lambdaKeys;
-  String[] muKeys;
+  String[] ptimes;
   String groupName;
   double LATENCY_BOUND = 0.001;
   double lastLambda = 0.;
-  double lastMu = 0.;
   double lastPtime = 0.;
 
   OutputTag<String> sosOutput;
   double lastAverage = 0.;
 
-  public SmartAnalyser(String groupName, String[] lambdaKeys, String[] muKeys, OutputTag<String> sosOutput) {
+  public SmartAnalyser(String groupName, String[] lambdaKeys, String[] ptimes, OutputTag<String> sosOutput) {
     this.lambdaKeys = lambdaKeys;
-    this.muKeys = muKeys;
+    this.ptimes = ptimes;
     this.groupName = groupName;
     this.sosOutput = sosOutput;
   }
@@ -622,7 +621,7 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
       double calculatedP = 0.;
       for (String key : lambdaKeys) {
         double weight = 0;
-        for (String key2 : muKeys) {
+        for (String key2 : ptimes) {
           double share = Objects.requireNonNullElse(map2.get("share" + key2 + "_" + key), 1.);
           weight += share * map2.get(key2);
         }
@@ -634,16 +633,18 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
       double ratioPtime = Math.abs(1 - map2.get("total") / (lastPtime == 0 ? 1 : lastPtime));
       if (lastAverage != 0.) {
         if ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND) {
-          value.put("B", B);
-          out.collect(value);
-          map2.put("mu", 1 / calculatedP);
-          Metrics output = new Metrics(value.name, "mu", muKeys.length + 2);
-          for (Map.Entry<String, Double> entry : map2.entries()) {
-            output.put(entry.getKey(), entry.getValue());
-          }
-          out.collect(output);
-          out.collect(value);
-          ctx.output(sosOutput, groupName);
+//          value.put("B", B);
+//          out.collect(value);
+//          map2.put("mu", 1 / calculatedP);
+//          Metrics output = new Metrics(value.name, "ptime", ptimes.length + 2);
+//          for (Map.Entry<String, Double> entry : map2.entries()) {
+//            output.put(entry.getKey(), entry.getValue());
+//          }
+          Long id = System.nanoTime();
+          Metrics empty = new Metrics(value.name, "overloaded", 0);
+          empty.id = id;
+          out.collect(empty);
+          ctx.output(sosOutput, "snap:" + id);
           map2.clear();
         }
       }
@@ -665,7 +666,7 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
       double calculatedP = 0.;
       for (String key : lambdaKeys) {
         double weight = 0;
-        for (String key2 : muKeys) {
+        for (String key2 : ptimes) {
           double share = Objects.requireNonNullElse(value.get("share" + key2 + "_" + key), 1.);
           weight += share * value.get(key2);
         }
@@ -677,15 +678,18 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
       double ratioPtime = Math.abs(1 - value.get("total") / (lastPtime == 0 ? 1 : lastPtime));
       if (lastAverage != 0.) {
         if ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND) {
-          map1.put("B", B);
-          value.put("mu", 1 / calculatedP);
-          Metrics output = new Metrics(value.name, "lambda", lambdaKeys.length + 2);
-          for (Map.Entry<String, Double> entry : map1.entries()) {
-            output.put(entry.getKey(), entry.getValue());
-          }
-          out.collect(output);
-          out.collect(value);
-          ctx.output(sosOutput, groupName + ":" + System.nanoTime());
+//          map1.put("B", B);
+//          value.put("mu", 1 / calculatedP);
+//          Metrics output = new Metrics(value.name, "lambda", lambdaKeys.length + 2);
+//          for (Map.Entry<String, Double> entry : map1.entries()) {
+//            output.put(entry.getKey(), entry.getValue());
+//          }
+          Long id = System.nanoTime();
+          Metrics empty = new Metrics(value.name, "overloaded", 0);
+          empty.id = id;
+          out.collect(empty);
+          ctx.output(sosOutput, "snap:" + id);
+
           map1.clear();
         }
       }
@@ -748,7 +752,7 @@ class Op implements Serializable {
   public String toString() {
     StringBuilder result = new StringBuilder();
     for (String index : indexer.keySet()) {
-      String toAppend = String.format("%-10s\t%s\n", index+":", metrics[indexer.get(index)]);
+      String toAppend = String.format("%-10s\t%s\n", index + ":", metrics[indexer.get(index)]);
       result.append(toAppend);
     }
     return result.toString();
@@ -813,42 +817,49 @@ class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
 
   @Override
   public void processElement(Metrics value, KeyedProcessFunction<Long, Metrics, String>.Context ctx, Collector<String> out) throws Exception {
-//    out.collect("Got: " + value);
-    operatorsList[indexer.get(value.name)].put(value.description, value);
-    if (value.name.matches("(o1|o2)") && value.description.equals("lambdaOut")) {
-      if (lambda == null) {
-        lambda = value;
-      } else {
-//        out.collect("lambada is:" + lambda);
-        Metrics op1 = value.name.equals("o1") ? value : lambda;
-        Metrics op2 = value == op1 ? lambda : value;
-        Metrics op3 = new Metrics("o3", "lambdaIn", 3);
-        Metrics op4 = new Metrics("o4", "lambdaIn", 3);
-        Double lambda11 = op1.get("11");
-        Double lambda12 = op1.get("12");
-        Double lambda21 = op2.get("21");
-        Double lambda22 = op2.get("22");
-        op3.put("11", lambda11);
-        op3.put("21", lambda21);
-        op3.put("total", lambda21 + lambda11);
-        op4.put("12", lambda12);
-        op4.put("22", lambda22);
-        op4.put("total", lambda22 + lambda12);
-        operatorsList[indexer.get("o3")].put("lambdaIn", op3);
-        operatorsList[indexer.get("o4")].put("lambdaIn", op4);
-        lambda = null;
-        out.collect("Got: " + op3);
-        out.collect("Got: " + op4);
+    if (value.description.equals("overloaded")) {
+      operatorsList[indexer.get(value.name)].isOverloaded = true;
+    } else {
+      operatorsList[indexer.get(value.name)].put(value.description, value);
+      if (value.name.matches("(o1|o2)") && value.description.equals("lambdaOut")) {
+        if (lambda == null) {
+          lambda = value;
+        } else {
+          Metrics op1 = value.name.equals("o1") ? value : lambda;
+          Metrics op2 = value == op1 ? lambda : value;
+          Metrics op3 = new Metrics("o3", "lambdaIn", 3);
+          Metrics op4 = new Metrics("o4", "lambdaIn", 3);
+          Double lambda11 = op1.get("11");
+          Double lambda12 = op1.get("12");
+          Double lambda21 = op2.get("21");
+          Double lambda22 = op2.get("22");
+          op3.put("11", lambda11);
+          op3.put("21", lambda21);
+          op3.put("total", lambda21 + lambda11);
+          op4.put("12", lambda12);
+          op4.put("22", lambda22);
+          op4.put("total", lambda22 + lambda12);
+          operatorsList[indexer.get("o3")].put("lambdaIn", op3);
+          operatorsList[indexer.get("o4")].put("lambdaIn", op4);
+          lambda = null;
+        }
       }
     }
     boolean isReady = true;
+    boolean isOverloaded = false;
     for (Op operator : operatorsList) {
       isReady &= operator.isReady();
+      isOverloaded |= operator.isOverloaded;
     }
+    //TODO delete after testing
     if (isReady) {
       out.collect("Ready with:\n" + this.toString());
       clear();
     }
+//    if (isReady && isOverloaded) {
+//      out.collect("Ready with:\n" + this.toString());
+//      clear();
+//    }
   }
 
   @Override
@@ -1053,8 +1064,7 @@ class SmartComplexOperator extends KeyedCoProcessFunction<Long, Measurement, Str
       double averageProcessingTime = sum / (batchSize * 1E9);
       result2.put("total", averageProcessingTime);
       result2.put(outKey, averageProcessingTime);
-      result2.put("batch", batch2++);
-      ctx.output(outputTagProcessingRates, result2);
+      result2.put("batch", batch2);
       lastAverage2 = averageProcessingTime;
       ptimeQueue.poll();
 
@@ -1066,9 +1076,11 @@ class SmartComplexOperator extends KeyedCoProcessFunction<Long, Measurement, Str
       for (String key : eventIndexer3.keySet()) {
         result3.put(key, (double) countArrayProcessingRates[eventIndexer3.get(key)] / elapsedTime);
       }
-      result3.put("batch", batch3++);
+      result3.put("batch", batch2);
+      ctx.output(outputTagProcessingRates, result2);
       countArrayProcessingRates[eventIndexer3.get(String.valueOf(eventStoreArrayProcessingRates[accessIndexProcessingRates]))]--;
       lastAverageProcessingRates = averageRate;
+      batch2++;
     }
 
     if (timeQueue.size() == batchSize) {
@@ -1294,8 +1306,7 @@ class SmartOperator extends SmartCounter {
       for (String key : eventIndexer2.keySet()) {
         result2.put(key, (double) countArray2[eventIndexer2.get(key)] / (batchSize * 1E9));
       }
-      result2.put("batch", batch2++);
-      ctx.output(outputTagProcessingRates, result2);
+      result2.put("batch", batch2);
       countArray2[eventIndexer2.get(keys[0])] -= rateStore1[accessIndex2];
       countArray2[eventIndexer2.get(keys[1])] -= rateStore2[accessIndex2];
       lastAverage2 = averageProcessingTime;
@@ -1309,7 +1320,8 @@ class SmartOperator extends SmartCounter {
       for (String key : eventIndexer3.keySet()) {
         result3.put(key, (double) countArrayProcessingRates[eventIndexer3.get(key)] / elapsedTime);
       }
-      result3.put("batch", batch3++);
+      result3.put("batch", batch2++);
+      ctx.output(outputTagProcessingRates, result2);
       countArrayProcessingRates[eventIndexer3.get(String.valueOf(eventStoreArrayProcessingRates[accessIndexProcessingRates]))]--;
       lastAverageProcessingRates = averageRate;
     }
