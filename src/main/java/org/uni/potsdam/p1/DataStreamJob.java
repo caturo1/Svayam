@@ -23,10 +23,7 @@ import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
-import org.apache.flink.api.common.state.ListState;
-import org.apache.flink.api.common.state.ListStateDescriptor;
-import org.apache.flink.api.common.state.MapState;
-import org.apache.flink.api.common.state.MapStateDescriptor;
+import org.apache.flink.api.common.state.*;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.connector.source.util.ratelimit.RateLimiterStrategy;
 import org.apache.flink.configuration.Configuration;
@@ -594,14 +591,12 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
   double lastLambda = 0.;
   double lastPtime = 0.;
 
-  OutputTag<String> sosOutput;
   double lastAverage = 0.;
 
-  public SmartAnalyser(String groupName, String[] lambdaKeys, String[] ptimes, OutputTag<String> sosOutput) {
+  public SmartAnalyser(String groupName, String[] lambdaKeys, String[] ptimes) {
     this.lambdaKeys = lambdaKeys;
     this.ptimes = ptimes;
     this.groupName = groupName;
-    this.sosOutput = sosOutput;
   }
 
   @Override
@@ -632,11 +627,12 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
       double ratioLambda = Math.abs(1 - value.get("total") / (lastLambda == 0 ? 1 : lastLambda));
       double ratioPtime = Math.abs(1 - map2.get("total") / (lastPtime == 0 ? 1 : lastPtime));
       if (lastAverage != 0.) {
-        if ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND) {
+        if ((value.get("batch") > 1000. && value.get("batch") % 551 == 0) || ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND)) {
+//        if ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND) {
 //          value.put("B", B);
 //          out.collect(value);
 //          map2.put("mu", 1 / calculatedP);
-//          Metrics output = new Metrics(value.name, "ptime", ptimes.length + 2);
+//          Metrics output = new Metrics(value.name, "ptimeFromMap", ptimes.length + 2);
 //          for (Map.Entry<String, Double> entry : map2.entries()) {
 //            output.put(entry.getKey(), entry.getValue());
 //          }
@@ -644,8 +640,10 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
           Metrics empty = new Metrics(value.name, "overloaded", 0);
           empty.id = id;
           out.collect(empty);
-          ctx.output(sosOutput, "snap:" + id);
-          map2.clear();
+//          ctx.output(sosOutput, "snap:" + id);
+//          out.collect(output);
+//          out.collect(value);
+//          map2.clear();
         }
       }
 //      ctx.output(sosOutput, groupName + " B: " + B + " p: " + calculatedP + " ratio: " + ratio + " batch: " + value.get("batch") + " map: " + total + " mu: " + (calculatedP == 0 ? 0 : 1 / calculatedP) + " last: " + lastAverage);
@@ -677,10 +675,11 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
       double ratioLambda = Math.abs(1 - map1.get("total") / (lastLambda == 0 ? 1 : lastLambda));
       double ratioPtime = Math.abs(1 - value.get("total") / (lastPtime == 0 ? 1 : lastPtime));
       if (lastAverage != 0.) {
-        if ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND) {
+        if ((value.get("batch") > 1000. && value.get("batch") % 551 == 0) || ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND)) {
+//        if ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND) {
 //          map1.put("B", B);
 //          value.put("mu", 1 / calculatedP);
-//          Metrics output = new Metrics(value.name, "lambda", lambdaKeys.length + 2);
+//          Metrics output = new Metrics(value.name, "lambdaFromMap", lambdaKeys.length + 2);
 //          for (Map.Entry<String, Double> entry : map1.entries()) {
 //            output.put(entry.getKey(), entry.getValue());
 //          }
@@ -688,9 +687,10 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
           Metrics empty = new Metrics(value.name, "overloaded", 0);
           empty.id = id;
           out.collect(empty);
-          ctx.output(sosOutput, "snap:" + id);
-
-          map1.clear();
+//          ctx.output(sosOutput, "snap:" + id);
+//          out.collect(output);
+//          out.collect(value);
+//          map1.clear();
         }
       }
 //      ctx.output(sosOutput, groupName + " B: " + B + " p: " + calculatedP + " ratio: " + ratio + " batch: " + value.get("batch") + " map: " + total + " mu: " + (calculatedP == 0 ? 0 : 1 / calculatedP) + " last: " + lastAverage);
@@ -800,12 +800,14 @@ class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
 
   public HashMap<String, Integer> indexer;
   public Op[] operatorsList;
-  public Metrics lambda;
+  public ValueState<Metrics> lambda;
+  public Set<String> jobQueue;
+  public OutputTag<String> sosOutput;
 
   public Coordinator() {
   }
 
-  public Coordinator(Op... operators) {
+  public Coordinator(OutputTag<String> sosOutput, Op... operators) {
     indexer = new HashMap<>(operators.length);
     operatorsList = new Op[operators.length];
     for (int i = 0; i < operators.length; i++) {
@@ -813,20 +815,32 @@ class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
       indexer.put(current.name, i);
       operatorsList[i] = current;
     }
+    jobQueue = new LinkedHashSet<>(operators.length);
+    this.sosOutput = sosOutput;
+  }
+
+  @Override
+  public void open(OpenContext openContext) throws Exception {
+    lambda = getRuntimeContext().getState(new ValueStateDescriptor<>("lambda", Metrics.class));
   }
 
   @Override
   public void processElement(Metrics value, KeyedProcessFunction<Long, Metrics, String>.Context ctx, Collector<String> out) throws Exception {
+//    out.collect("Got: " + value + " lambda:" + (lambda.value() == null ? "null" : lambda.value().id) + " id: " + value.id);
     if (value.description.equals("overloaded")) {
-      operatorsList[indexer.get(value.name)].isOverloaded = true;
+      if (jobQueue.isEmpty()) {
+        operatorsList[indexer.get(value.name)].isOverloaded = true;
+        ctx.output(sosOutput, "snap:" + System.nanoTime());
+      }
+      jobQueue.add(value.name);
     } else {
       operatorsList[indexer.get(value.name)].put(value.description, value);
       if (value.name.matches("(o1|o2)") && value.description.equals("lambdaOut")) {
-        if (lambda == null) {
-          lambda = value;
+        if (lambda.value() == null) {
+          lambda.update(value);
         } else {
-          Metrics op1 = value.name.equals("o1") ? value : lambda;
-          Metrics op2 = value == op1 ? lambda : value;
+          Metrics op1 = value.name.equals("o1") ? value : lambda.value();
+          Metrics op2 = value == op1 ? lambda.value() : value;
           Metrics op3 = new Metrics("o3", "lambdaIn", 3);
           Metrics op4 = new Metrics("o4", "lambdaIn", 3);
           Double lambda11 = op1.get("11");
@@ -841,25 +855,28 @@ class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
           op4.put("total", lambda22 + lambda12);
           operatorsList[indexer.get("o3")].put("lambdaIn", op3);
           operatorsList[indexer.get("o4")].put("lambdaIn", op4);
-          lambda = null;
+          lambda.clear();
         }
       }
     }
     boolean isReady = true;
-    boolean isOverloaded = false;
     for (Op operator : operatorsList) {
       isReady &= operator.isReady();
-      isOverloaded |= operator.isOverloaded;
     }
-    //TODO delete after testing
     if (isReady) {
-      out.collect("Ready with:\n" + this.toString());
+      String lastOverloadedOperator = jobQueue.iterator().next();
+
+
+      // end work
+      operatorsList[indexer.get(lastOverloadedOperator)].isOverloaded = false;
+      out.collect(lastOverloadedOperator + " " + value.id + ": Ready with:\n" + this.toString());
       clear();
+      jobQueue.remove(lastOverloadedOperator);
+      if (!jobQueue.isEmpty()) {
+        operatorsList[indexer.get(jobQueue.iterator().next())].isOverloaded = true;
+        ctx.output(sosOutput, "snap:" + System.nanoTime());
+      }
     }
-//    if (isReady && isOverloaded) {
-//      out.collect("Ready with:\n" + this.toString());
-//      clear();
-//    }
   }
 
   @Override
@@ -972,10 +989,12 @@ class SmartComplexOperator extends KeyedCoProcessFunction<Long, Measurement, Str
   long[] eventStoreArrayProcessingRates;
   int accessIndexProcessingRates = 0;
   double lastAverageProcessingRates = 0.;
-  double batch3 = 0.;
   HashMap<String, Integer> eventIndexer3;
   Metrics result2;
   Metrics result3;
+
+  // set shedding shares for this operator
+  Metrics sheddingShares;
 
   SmartComplexOperator(String groupName, String[] inputKeys, String[] outputKeys, OutputTag<Metrics> outputProcessingRates, OutputTag<Metrics> sosOutput, int batchsize) {
     int size = outputKeys.length;
@@ -997,10 +1016,12 @@ class SmartComplexOperator extends KeyedCoProcessFunction<Long, Measurement, Str
     countArrayProcessingRates = new long[batchsize];
     eventStoreArrayProcessingRates = new long[batchsize];
     eventIndexer3 = new HashMap<>(inputKeys.length + 2);
+    sheddingShares = new Metrics(groupName, "r", inputKeys.length);
+    outKey = outputKeys[0];
     for (int i = 0; i < inputKeys.length; i++) {
       eventIndexer3.put(inputKeys[i], i);
+      sheddingShares.put(outKey + "_" + inputKeys[i], 0.);
     }
-    outKey = outputKeys[0];
     result2 = new Metrics(groupName, "ptime", outputKeys.length + 2);
     result3 = new Metrics(groupName, "mu", inputKeys.length + 2);
   }
@@ -1013,33 +1034,37 @@ class SmartComplexOperator extends KeyedCoProcessFunction<Long, Measurement, Str
 
   @Override
   public void processElement1(Measurement value, KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
-    Instant begin = Instant.now();
     int type = value.machineId;
-    if (type == 11 || type == 12) {
-      List<Measurement> listo = (List<Measurement>) list2.get();
-      if (!listo.isEmpty()) {
-        Measurement current = listo.get(0);
-        out.collect(new Measurement(Integer.valueOf(outKey), String.format("%s%n%s%n", value, current), 1));
-        timeQueue.add(Instant.now());
-        countArray[0]++;
-        eventStoreArray[accessIndex] = Long.valueOf(outKey);
-        accessIndex = (accessIndex + 1) % batchSize;
-        list2.update(listo.subList(1, listo.size()));
+    double prob = Math.random();
+    boolean drop = sheddingShares.get(outKey + "_" + value.machineId) > prob;
+    Instant begin = Instant.now();
+    if (!drop) {
+      if ((type == 11 || type == 12)) {
+        List<Measurement> listo = (List<Measurement>) list2.get();
+        if (!listo.isEmpty()) {
+          Measurement current = listo.get(0);
+          out.collect(new Measurement(Integer.valueOf(outKey), String.format("%s%n%s%n", value, current), 1));
+          timeQueue.add(Instant.now());
+          countArray[0]++;
+          eventStoreArray[accessIndex] = Long.valueOf(outKey);
+          accessIndex = (accessIndex + 1) % batchSize;
+          list2.update(listo.subList(1, listo.size()));
+        } else {
+          list1.add(value);
+        }
       } else {
-        list1.add(value);
-      }
-    } else {
-      List<Measurement> listo = (List<Measurement>) list1.get();
-      if (!listo.isEmpty()) {
-        Measurement current = listo.get(0);
-        out.collect(new Measurement(Integer.valueOf(outKey), String.format("%s%n%s%n", value, current), 1));
-        timeQueue.add(Instant.now());
-        countArray[0]++;
-        eventStoreArray[accessIndex] = Long.valueOf(outKey);
-        accessIndex = (accessIndex + 1) % batchSize;
-        list1.update(listo.subList(1, listo.size()));
-      } else {
-        list2.add(value);
+        List<Measurement> listo = (List<Measurement>) list1.get();
+        if (!listo.isEmpty()) {
+          Measurement current = listo.get(0);
+          out.collect(new Measurement(Integer.valueOf(outKey), String.format("%s%n%s%n", value, current), 1));
+          timeQueue.add(Instant.now());
+          countArray[0]++;
+          eventStoreArray[accessIndex] = Long.valueOf(outKey);
+          accessIndex = (accessIndex + 1) % batchSize;
+          list1.update(listo.subList(1, listo.size()));
+        } else {
+          list2.add(value);
+        }
       }
     }
     Instant end = Instant.now();
@@ -1104,6 +1129,12 @@ class SmartComplexOperator extends KeyedCoProcessFunction<Long, Measurement, Str
       ctx.output(sosOutput, result);
       ctx.output(sosOutput, result2);
       ctx.output(sosOutput, result3);
+      //TODO send metrics together
+    } else {
+      for (String share : value.substring(index + 1).split(":")) {
+        int separationIndex = share.indexOf("|");
+        sheddingShares.put(share.substring(0, separationIndex), Double.valueOf(share.substring(separationIndex + 1)));
+      }
     }
   }
 }
@@ -1139,6 +1170,9 @@ class SmartOperator extends SmartCounter {
   Metrics result2;
   Metrics result3;
 
+  // set shedding shares for this operator
+  Metrics sheddingShares;
+
   SmartOperator(String groupName, String[] inputKeys, String[] outputKeys, OutputTag<Measurement> secondOutput, OutputTag<Metrics> outputTagProcessingRates, OutputTag<Metrics> outputRates, OutputTag<Metrics> sosOutput, int batchsize) {
     super(groupName, outputKeys, outputTagProcessingRates, sosOutput, batchsize);
     result.description = "lambdaOut";
@@ -1150,8 +1184,12 @@ class SmartOperator extends SmartCounter {
     for (int i = 0; i < size; i++) {
       eventIndexer2.put(keys[i], i);
     }
+    sheddingShares = new Metrics(groupName, "r", inputKeys.length);
     for (int i = 0; i < inputKeys.length; i++) {
       eventIndexer3.put(inputKeys[i], i);
+      for (String outkey : outputKeys) {
+        sheddingShares.put(outkey + "_" + inputKeys[i], 0.);
+      }
     }
     this.secondOutput = secondOutput;
     rateStore1 = new long[batchsize];
@@ -1176,24 +1214,92 @@ class SmartOperator extends SmartCounter {
 
   @Override
   public void processElement1(Measurement value, KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
+    int type = value.machineId;
+    double prob = Math.random();
+    boolean dropPattern1 = sheddingShares.get(keys[0] + "_" + value.machineId) > prob;
+    boolean dropPattern2 = sheddingShares.get(keys[1] + "_" + value.machineId) > prob;
     Instant begin = Instant.now();
-    if (value.machineId == 0) {
-      zero.add(value);
-    } else if (value.machineId == 1) {
-      List<Measurement> listOfZeros = (List<Measurement>) zero.get();
-      int amountOfZeros = listOfZeros.size();
-      if (amountOfZeros > 1) {
-        int index = 0;
-        Measurement firstCandidate = null;
-        while (index < amountOfZeros && value.eventTime - (firstCandidate = listOfZeros.get(index)).eventTime > 10000) {
-          index++;
+    if (!dropPattern1) {
+      if (value.machineId == 0) {
+        zero.add(value);
+      } else if (value.machineId == 1) {
+        List<Measurement> listOfZeros = (List<Measurement>) zero.get();
+        int amountOfZeros = listOfZeros.size();
+        if (amountOfZeros > 1) {
+          int index = 0;
+          Measurement firstCandidate = null;
+          while (index < amountOfZeros && value.eventTime - (firstCandidate = listOfZeros.get(index)).eventTime > 10000) {
+            index++;
+          }
+          if (index < amountOfZeros - 1) {
+            Measurement secondCandidate = listOfZeros.get(index + 1);
+            long diff = value.eventTime - secondCandidate.eventTime;
+            if (diff > 0 && diff <= 10_000) {
+              String key = keys[0];
+              out.collect(new Measurement(Integer.valueOf(key), String.format("%s%n%s%n%s%n", value, secondCandidate, firstCandidate), 2));
+              timeQueue.add(Instant.now());
+              countArray[eventIndexer.get(key)]++;
+              if (timeQueue.size() > batchSize) {
+                countArray[eventIndexer.get(String.valueOf(eventStoreArray[accessIndex]))]--;
+              }
+              eventStoreArray[accessIndex] = Long.valueOf(key);
+              accessIndex = (accessIndex + 1) % batchSize;
+              zero.update(listOfZeros.subList(index + 2, amountOfZeros));
+            } else {
+              zero.update(listOfZeros.subList(index, amountOfZeros));
+            }
+          } else {
+            zero.update(listOfZeros.subList(index, amountOfZeros));
+          }
         }
-        if (index < amountOfZeros - 1) {
-          Measurement secondCandidate = listOfZeros.get(index + 1);
-          long diff = value.eventTime - secondCandidate.eventTime;
-          if (diff > 0 && diff <= 10_000) {
-            String key = keys[0];
-            out.collect(new Measurement(Integer.valueOf(key), String.format("%s%n%s%n%s%n", value, secondCandidate, firstCandidate), 2));
+      }
+    }
+    Instant middle = Instant.now();
+    if (!dropPattern2) {
+      if (value.machineId != 0) {
+        List<Measurement> list1 = null;
+        List<Measurement> list2 = null;
+        ListState<Measurement> currentValueReference = null;
+        ListState<Measurement> otherValueReference1 = null;
+        ListState<Measurement> otherValueReference2 = null;
+        if (value.machineId == 1) {
+          list1 = (List<Measurement>) second.get();
+          list2 = (List<Measurement>) third.get();
+          currentValueReference = first;
+          otherValueReference1 = second;
+          otherValueReference2 = third;
+        } else if (value.machineId == 2) {
+          list1 = (List<Measurement>) first.get();
+          list2 = (List<Measurement>) third.get();
+          currentValueReference = second;
+          otherValueReference1 = first;
+          otherValueReference2 = third;
+        } else if (value.machineId == 3) {
+          list1 = (List<Measurement>) first.get();
+          list2 = (List<Measurement>) second.get();
+          currentValueReference = third;
+          otherValueReference1 = first;
+          otherValueReference2 = second;
+        }
+        if (list1 != null && list2 != null) {
+          int index1 = 0;
+          int size1 = list1.size();
+          if (!list1.isEmpty()) {
+            while (index1 < size1 && Math.abs(list1.get(index1).eventTime - value.eventTime) > 10_000) {
+              index1++;
+            }
+          }
+          int index2 = 0;
+          int size2 = list2.size();
+          if (!list2.isEmpty()) {
+            while (index2 < size2 && Math.abs(list2.get(index2).eventTime - value.eventTime) > 10_000) {
+              index2++;
+            }
+          }
+          if (index1 < size1 && index2 < size2) {
+
+            String key = keys[1];
+            ctx.output(secondOutput, new Measurement(Integer.valueOf(key), String.format("%s%n%s%n%s%n", value, list1.get(index1), list2.get(index2)), 2));
             timeQueue.add(Instant.now());
             countArray[eventIndexer.get(key)]++;
             if (timeQueue.size() > batchSize) {
@@ -1201,78 +1307,17 @@ class SmartOperator extends SmartCounter {
             }
             eventStoreArray[accessIndex] = Long.valueOf(key);
             accessIndex = (accessIndex + 1) % batchSize;
-            zero.update(listOfZeros.subList(index + 2, amountOfZeros));
+            otherValueReference1.update(list1.subList(index1 + 1, size1));
+            otherValueReference2.update(list2.subList(index2 + 1, size2));
           } else {
-            zero.update(listOfZeros.subList(index, amountOfZeros));
+            if (index1 > 0) {
+              otherValueReference1.update(list1.subList(index1, size1));
+            }
+            if (index2 > 0) {
+              otherValueReference2.update(list2.subList(index2, size2));
+            }
+            currentValueReference.add(value);
           }
-        } else {
-          zero.update(listOfZeros.subList(index, amountOfZeros));
-        }
-      }
-    }
-    Instant middle = Instant.now();
-    if (value.machineId != 0) {
-
-      List<Measurement> list1 = null;
-      List<Measurement> list2 = null;
-      ListState<Measurement> currentValueReference = null;
-      ListState<Measurement> otherValueReference1 = null;
-      ListState<Measurement> otherValueReference2 = null;
-      if (value.machineId == 1) {
-        list1 = (List<Measurement>) second.get();
-        list2 = (List<Measurement>) third.get();
-        currentValueReference = first;
-        otherValueReference1 = second;
-        otherValueReference2 = third;
-      } else if (value.machineId == 2) {
-        list1 = (List<Measurement>) first.get();
-        list2 = (List<Measurement>) third.get();
-        currentValueReference = second;
-        otherValueReference1 = first;
-        otherValueReference2 = third;
-      } else if (value.machineId == 3) {
-        list1 = (List<Measurement>) first.get();
-        list2 = (List<Measurement>) second.get();
-        currentValueReference = third;
-        otherValueReference1 = first;
-        otherValueReference2 = second;
-      }
-      if (list1 != null && list2 != null) {
-        int index1 = 0;
-        int size1 = list1.size();
-        if (!list1.isEmpty()) {
-          while (index1 < size1 && Math.abs(list1.get(index1).eventTime - value.eventTime) > 10_000) {
-            index1++;
-          }
-        }
-        int index2 = 0;
-        int size2 = list2.size();
-        if (!list2.isEmpty()) {
-          while (index2 < size2 && Math.abs(list2.get(index2).eventTime - value.eventTime) > 10_000) {
-            index2++;
-          }
-        }
-        if (index1 < size1 && index2 < size2) {
-
-          String key = keys[1];
-          ctx.output(secondOutput, new Measurement(Integer.valueOf(key), String.format("%s%n%s%n%s%n", value, list1.get(index1), list2.get(index2)), 2));
-          timeQueue.add(Instant.now());
-          countArray[eventIndexer.get(key)]++;
-          if (timeQueue.size() > batchSize) {
-            countArray[eventIndexer.get(String.valueOf(eventStoreArray[accessIndex]))]--;
-          }
-          eventStoreArray[accessIndex] = Long.valueOf(key);
-          accessIndex = (accessIndex + 1) % batchSize;
-          otherValueReference1.update(list1.subList(index1 + 1, size1));
-          otherValueReference2.update(list2.subList(index2 + 1, size2));
-        } else {
-          if (index1 > 0) {
-            otherValueReference1.update(list1.subList(index1, size1));
-          }
-          if (index2 > 0) {
-            otherValueReference2.update(list2.subList(index2, size2));
-          }
-          currentValueReference.add(value);
         }
       }
     }
@@ -1357,6 +1402,12 @@ class SmartOperator extends SmartCounter {
       ctx.output(sosOutput, result);
       ctx.output(sosOutput, result2);
       ctx.output(sosOutput, result3);
+      //TODO send load shares and all metrics together at once
+    } else {
+      for (String share : value.substring(index + 1).split(":")) {
+        int separationIndex = share.indexOf("|");
+        sheddingShares.put(share.substring(0, separationIndex), Double.valueOf(share.substring(separationIndex + 1)));
+      }
     }
   }
 }
@@ -1626,11 +1677,11 @@ public class DataStreamJob {
     // connect the stream of output rates of the sources with the stream of processing rates of the operators
     SingleOutputStreamOperator<Metrics> analyser1 = counter1.getSideOutput(toAnalyser1).keyBy(map -> map.get("batch"))
       .connect(operator1.getSideOutput(toAnalyser1).keyBy(map -> map.get("batch")))
-      .process(new SmartAnalyser("o1", new String[]{"1", "2", "3", "0"}, new String[]{"11", "12"}, toKafka));
+      .process(new SmartAnalyser("o1", new String[]{"1", "2", "3", "0"}, new String[]{"11", "12"}));
 
     SingleOutputStreamOperator<Metrics> analyser2 = counter2.getSideOutput(toAnalyser2).keyBy(map -> map.get("batch"))
       .connect(operator2.getSideOutput(toAnalyser2).keyBy(map -> map.get("batch")))
-      .process(new SmartAnalyser("o2", new String[]{"1", "2", "3", "0"}, new String[]{"21", "22"}, toKafka));
+      .process(new SmartAnalyser("o2", new String[]{"1", "2", "3", "0"}, new String[]{"21", "22"}));
 
     // set operators 3 and 4 and collect both their processing (mu) and their output rates (lambda)
     SingleOutputStreamOperator<Measurement> operator3 = operator1.union(operator2).keyBy(me -> 1).connect(global).process(new SmartComplexOperator("o3", new String[]{"11", "21"}, new String[]{"1000"}, toAnalyser3, toCoordinator, CONTROL_BATCH_SIZE));
@@ -1643,17 +1694,12 @@ public class DataStreamJob {
 
     SingleOutputStreamOperator<Metrics> analyser3 = joined.keyBy(map -> map.get("batch"))
       .connect(operator3.getSideOutput(toAnalyser3).keyBy(map -> map.get("batch")))
-      .process(new SmartAnalyser("o3", new String[]{"11", "21"}, new String[]{"1000"}, toKafka));
+      .process(new SmartAnalyser("o3", new String[]{"11", "21"}, new String[]{"1000"}));
 
-    SingleOutputStreamOperator<Metrics> analyser4 = joined.getSideOutput(toAnalyser4).keyBy(map -> map.get("batch"))
-      .connect(operator4.getSideOutput(toAnalyser4).keyBy(map -> map.get("batch")))
-      .process(new SmartAnalyser("o4", new String[]{"12", "22"}, new String[]{"2000"}, toKafka));
-
-    analyser1.getSideOutput(toKafka)
-      .union(analyser2.getSideOutput(toKafka))
-      .union(analyser3.getSideOutput(toKafka))
-      .union(analyser4.getSideOutput(toKafka))
-      .sinkTo(globalChannelOut);
+    SingleOutputStreamOperator<Metrics> analyser4 =
+      joined.getSideOutput(toAnalyser4).keyBy(map -> map.get("batch"))
+        .connect(operator4.getSideOutput(toAnalyser4).keyBy(map -> map.get("batch")))
+        .process(new SmartAnalyser("o4", new String[]{"12", "22"}, new String[]{"2000"}));
 
     DataStream<Metrics> streamToCoordinator = analyser1.union(analyser2)
       .union(analyser3)
@@ -1665,10 +1711,16 @@ public class DataStreamJob {
       .union(operator3.getSideOutput(toCoordinator))
       .union(operator4.getSideOutput(toCoordinator));
 
-    streamToCoordinator
-      .keyBy(metric -> metric.id).process(new Coordinator(operators))
-      .sinkTo(control);
+//    streamToCoordinator.map(Metrics::toString).sinkTo(control);
 
+//    joined.getSideOutput(toAnalyser4).union(operator4.getSideOutput(toAnalyser4))
+//      .keyBy(map -> map.get("batch")).map(Metrics::toString).sinkTo(control);
+
+    SingleOutputStreamOperator<String> outie = streamToCoordinator
+      .keyBy(metric -> metric.id).process(new Coordinator(toKafka, operators));
+
+    outie.sinkTo(control);
+    outie.getSideOutput(toKafka).sinkTo(globalChannelOut);
     // connect the stream of output rates of the sources with the stream of processing rates of the operators
 
 //    // count the output rates of the sources per second and forward the events to the operators
