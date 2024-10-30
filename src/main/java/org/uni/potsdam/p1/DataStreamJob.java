@@ -51,7 +51,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
-import java.util.function.ToDoubleFunction;
 
 class EventJsonDeserializer implements JsonDeserializer<Measurement>, Serializable {
 
@@ -627,7 +626,7 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
       double ratioLambda = Math.abs(1 - value.get("total") / (lastLambda == 0 ? 1 : lastLambda));
       double ratioPtime = Math.abs(1 - map2.get("total") / (lastPtime == 0 ? 1 : lastPtime));
       if (lastAverage != 0.) {
-        if ((value.get("batch") > 1000. && value.get("batch") % 551 == 0) || ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND)) {
+        if ((value.get("batch") > 1000. && value.get("batch") % 100 < 1) || ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND)) {
 //        if ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND) {
 //          value.put("B", B);
 //          out.collect(value);
@@ -675,7 +674,7 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
       double ratioLambda = Math.abs(1 - map1.get("total") / (lastLambda == 0 ? 1 : lastLambda));
       double ratioPtime = Math.abs(1 - value.get("total") / (lastPtime == 0 ? 1 : lastPtime));
       if (lastAverage != 0.) {
-        if ((value.get("batch") > 1000. && value.get("batch") % 551 == 0) || ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND)) {
+        if ((value.get("batch") > 1000. && value.get("batch") % 100 < 1) || ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND)) {
 //        if ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND) {
 //          map1.put("B", B);
 //          value.put("mu", 1 / calculatedP);
@@ -701,36 +700,39 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
   }
 }
 
-class Pattern implements Serializable {
+class EventPattern implements Serializable {
   public String name;
-  public ToDoubleFunction<HashMap<String, Double>> selFunction;
+  public String type;
+  public String[] downstreamOperators;
 
-  public Pattern() {
+  public EventPattern() {
   }
 
-  public Pattern(String name, ToDoubleFunction<HashMap<String, Double>> selFunction) {
+  public EventPattern(String name, String type, String[] downstreamOperators) {
     this.name = name;
-    this.selFunction = selFunction;
+    this.type = type;
+    this.downstreamOperators = downstreamOperators;
   }
 
   @Override
   public boolean equals(Object o) {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
-    Pattern pattern = (Pattern) o;
-    return Objects.equals(name, pattern.name) && Objects.equals(selFunction, pattern.selFunction);
+    EventPattern pattern = (EventPattern) o;
+    return Objects.equals(name, pattern.name) && Objects.equals(type, pattern.type);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(name, selFunction);
+    return Objects.hash(name, type);
   }
 }
 
 class Op implements Serializable {
   public String[] inputTypes;
-  //  public Pattern[] patterns;
+  public EventPattern[] patterns;
   public boolean isOverloaded = false;
+  public boolean isSinkOperator = false;
   public String name;
   public HashMap<String, Integer> indexer = new HashMap<>(4);
   public Metrics[] metrics = new Metrics[4];
@@ -738,13 +740,14 @@ class Op implements Serializable {
   public Op() {
   }
 
-  public Op(String name, String[] inputTypes) { //} Pattern... patterns) {
+  public Op(String name, String[] inputTypes, EventPattern[] patterns, boolean isSinkOperator) { //} EventPattern... patterns) {
     this.inputTypes = inputTypes;
     String[] metrics = new String[]{"lambdaIn", "lambdaOut", "mu", "ptime"};
     for (int i = 0; i < metrics.length; i++) {
       indexer.put(metrics[i], i);
     }
-//    this.patterns = patterns;
+    this.patterns = patterns;
+    this.isSinkOperator = isSinkOperator;
     this.name = name;
   }
 
@@ -803,6 +806,8 @@ class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
   public ValueState<Metrics> lambda;
   public Set<String> jobQueue;
   public OutputTag<String> sosOutput;
+  public Set<String> sinkOperators;
+  public static double LATENCY_BOUND = 10.15E-6;
 
   public Coordinator() {
   }
@@ -810,10 +815,14 @@ class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
   public Coordinator(OutputTag<String> sosOutput, Op... operators) {
     indexer = new HashMap<>(operators.length);
     operatorsList = new Op[operators.length];
+    sinkOperators = new HashSet<>();
     for (int i = 0; i < operators.length; i++) {
       Op current = operators[i];
       indexer.put(current.name, i);
       operatorsList[i] = current;
+      if (current.isSinkOperator) {
+        sinkOperators.add(current.name);
+      }
     }
     jobQueue = new LinkedHashSet<>(operators.length);
     this.sosOutput = sosOutput;
@@ -864,12 +873,170 @@ class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
       isReady &= operator.isReady();
     }
     if (isReady) {
+      // define overloaded operator
       String lastOverloadedOperator = jobQueue.iterator().next();
+      Op overloadedOp = operatorsList[indexer.get(lastOverloadedOperator)];
+
+//      // import libraries
+//      Loader.loadNativeLibraries();
+//
+//      // declare solver
+//      MPSolver solver = MPSolver.createSolver("GLOP");
+
+//      // create decision variables for the overloaded operator
+//      int numberOfInputs = overloadedOp.inputTypes.length;
+//      int numberOfPatterns = overloadedOp.patterns.length;
+//      MPVariable[] decisionVariablesX = new MPVariable[numberOfInputs * numberOfPatterns];
+//      for (int i = 0, indexPatterns = 0; i < decisionVariablesX.length; i++) {
+//        decisionVariablesX[i] = solver.makeNumVar(0., 1., "x_" + overloadedOp.patterns[indexPatterns] + "_" + overloadedOp.inputTypes[i % numberOfInputs]);
+//        if (i == numberOfInputs - 1) {
+//          indexPatterns++;
+//        }
+//      }
+//
+//      // create decision variables for the direct outputs of the decision operator
+//      MPVariable[] decisionVariablesY = new MPVariable[numberOfPatterns];
+//      for (int i = 0; i < decisionVariablesY.length; i++) {
+//        String pattern = overloadedOp.patterns[i].name;
+//        decisionVariablesY[i] = solver.makeNumVar(0, overloadedOp.get("mu").get(pattern), "y_" + pattern);
+//      }
+//
+//      // create decision variable for the sinks
+//      Map<String, MPVariable> decisionVariablesSinks = new HashMap<>(sinkOperators.size());
+//      for (String sinkName : sinkOperators) {
+//        Op sinkOperator = operatorsList[indexer.get(sinkName)];
+//        for (EventPattern pattern : sinkOperator.patterns) {
+//          decisionVariablesSinks.put(sinkName, solver.makeNumVar(0, sinkOperator.get("mu").get(pattern.name), "sink_" + pattern));
+//        }
+//      }
+//
+//      // declare time constraint
+//      double totalInputRate = overloadedOp.get("lambdaIn").get("total");
+//      double totalProcessingTime = overloadedOp.get("ptime").get("total");
+//      double p = Arrays.stream(overloadedOp.inputTypes).map(inputType -> (overloadedOp.get("lambdaIn").get(inputType) / totalInputRate) * totalProcessingTime).reduce(0., Double::sum);
+//      double pStar = 1 / ((1 / LATENCY_BOUND) + totalInputRate);
+//
+//      MPConstraint timeConstraint = solver.makeConstraint(p - pStar, MPSolver.infinity(), "time_constraint");
+//      double ptime = overloadedOp.get("ptime").get(overloadedOp.patterns[0].name);
+//      for (int i = 0, indexPatterns = 0; i < decisionVariablesX.length; i++) {
+//        String inputType = overloadedOp.inputTypes[i % numberOfInputs];
+//        double factor = (overloadedOp.get("lambdaIn").get(inputType) / totalInputRate) * ptime;
+//        timeConstraint.setCoefficient(decisionVariablesX[i], factor);
+//        if (i == numberOfInputs - 1 && indexPatterns < overloadedOp.patterns.length - 1) {
+//          ptime = overloadedOp.get("ptime").get(overloadedOp.patterns[++indexPatterns].name);
+//        }
+//      }
+//
+//      // set constraints for the selectivity functions
+//
+//      // set objective function
+//      MPObjective objective = solver.objective();
+//      for (String sinkName : sinkOperators) {
+//        objective.setCoefficient(decisionVariablesSinks.get(sinkName), 1.);
+//      }
+//      objective.setMaximization();
+
+
+      String output = "";
+//      String[] inputNames = "0 1 2 3".split(" ");
+//      String[] patterns = "11 12".split(" ");
+//      double processingRate = 110.974;
+//      double processingRateSink1 = 27.5;
+//      double processingRateSink2 = 54.73;
+//      double[] inputRates = new double[]{28.85, 24.41, 26.64, 31.07};
+//      double sum = 110.988;
+//      double[] ptimes = new double[]{4.46E-6, 1.162E-5};
+//      double ptimeSum = 1.62E-5;
+//      double p = Arrays.stream(inputRates).map(input -> (input / sum) * ptimeSum).sum();
+//
+//      // outputs of the overloaded operator
+//      MPVariable output1 = solver.makeNumVar(0, processingRate, "output1");
+//      MPVariable output2 = solver.makeNumVar(0, processingRate, "output2");
+//
+//      // inputs of the overloaded operator
+//      MPVariable[] decisionVariables = new MPVariable[patterns.length * inputNames.length];
+//      for (int i = 0, indexPatterns = 0; i < decisionVariables.length; i++) {
+//        decisionVariables[i] = solver.makeNumVar(0., 1., "x_" + patterns[indexPatterns] + "_" + inputNames[i % inputNames.length]);
+//        if (i == inputNames.length - 1) {
+//          indexPatterns++;
+//        }
+//      }
+//
+//      // outputs to the sinks
+//      MPVariable sink1 = solver.makeNumVar(0, processingRateSink1, "sink1");
+//      MPVariable sink2 = solver.makeNumVar(0, processingRateSink2, "sink2");
+//
+//      double pstar = 1 / ((1 / 10.15E-6) + 110.98);
+//
+//      System.out.println(p > pstar);
+//      double infinity = Double.POSITIVE_INFINITY;
+//
+//      // constraint 1
+//      // local output rates are less or equal than the shed input rates - Pattern1
+//      //Pattern11
+//      MPConstraint ct1 = solver.makeConstraint(-infinity, 28.85, "y11_0");
+//      ct1.setCoefficient(output1, 2);
+//      ct1.setCoefficient(decisionVariables[0], 28.85);
+//
+//      MPConstraint ct2 = solver.makeConstraint(-infinity, 24.41, "y11_1");
+//      ct2.setCoefficient(output1, 1);
+//      ct2.setCoefficient(decisionVariables[1], 24.41);
+//
+//      //Pattern12
+//      MPConstraint ct5 = solver.makeConstraint(-infinity, 24.41, "y12_1");
+//      ct5.setCoefficient(output2, 1);
+//      ct5.setCoefficient(decisionVariables[inputRates.length + 1], 24.41);
+//
+//      MPConstraint ct3 = solver.makeConstraint(-infinity, 26.64, "y12_2");
+//      ct3.setCoefficient(output2, 1);
+//      ct3.setCoefficient(decisionVariables[inputRates.length + 2], 26.64);
+//
+//      MPConstraint ct4 = solver.makeConstraint(-infinity, 31.07, "y12_3");
+//      ct4.setCoefficient(output2, 1);
+//      ct4.setCoefficient(decisionVariables[inputRates.length + 3], 31.07);
+//
+//      // constraints for the sinks
+//      MPConstraint ct6 = solver.makeConstraint(-infinity, 12.95, "sink_21");
+//      ct6.setCoefficient(sink1, 1);
+//
+//      MPConstraint ct7 = solver.makeConstraint(-infinity, 0, "sink_11");
+//      ct7.setCoefficient(sink1, 1);
+//      ct7.setCoefficient(output1, -1);
+//
+//      MPConstraint ct8 = solver.makeConstraint(-infinity, 0, "sink_12");
+//      ct8.setCoefficient(sink2, 1);
+//      ct8.setCoefficient(output2, -1);
+//
+//      MPConstraint ct9 = solver.makeConstraint(-infinity, 24.05, "sink_22");
+//      ct9.setCoefficient(sink2, 1);
+//
+//      // constraint 3
+//      MPConstraint pCt = solver.makeConstraint(p - pstar, infinity, "Time");
+//      pCt.setCoefficient(decisionVariables[0], (inputRates[0] / sum) * ptimes[0]);
+//      pCt.setCoefficient(decisionVariables[1], (inputRates[1] / sum) * ptimes[0]);
+//      pCt.setCoefficient(decisionVariables[2], (inputRates[2] / sum) * ptimes[0]);
+//      pCt.setCoefficient(decisionVariables[3], (inputRates[3] / sum) * ptimes[0]);
+//      pCt.setCoefficient(decisionVariables[4], (inputRates[0] / sum) * ptimes[1]);
+//      pCt.setCoefficient(decisionVariables[5], (inputRates[1] / sum) * ptimes[1]);
+//      pCt.setCoefficient(decisionVariables[6], (inputRates[2] / sum) * ptimes[1]);
+//      pCt.setCoefficient(decisionVariables[7], (inputRates[3] / sum) * ptimes[1]);
+//
+//      MPObjective objective = solver.objective();
+//      objective.setCoefficient(sink1, 1);
+//      objective.setCoefficient(sink2, 1);
+//      objective.setMaximization();
+//      StringBuilder result = new StringBuilder();
+//      for (MPVariable var : decisionVariables) {
+//        result.append(var.name() + " = " + var.solutionValue() + " ");
+//      }
+//      MPSolver.ResultStatus results = solver.solve();
+//      String output = String.format("Solution:%nObjective value: %f%nSink1: %f%nSink2: %f%ny11: %f%ny12: %f%n%s%n"
+//        , objective.value(), sink1.solutionValue(), sink2.solutionValue(), output1.solutionValue(), output2.solutionValue(), result.toString());
 
 
       // end work
       operatorsList[indexer.get(lastOverloadedOperator)].isOverloaded = false;
-      out.collect(lastOverloadedOperator + " " + value.id + ": Ready with:\n" + this.toString());
+      out.collect(lastOverloadedOperator + " " + value.id + ": Ready with:\n" + this + "\n" + output);
       clear();
       jobQueue.remove(lastOverloadedOperator);
       if (!jobQueue.isEmpty()) {
@@ -878,6 +1045,13 @@ class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
       }
     }
   }
+
+//  public void fillConstraintList(Op currentOperator, MPVariable lastDecisionVariable, List<MPConstraint> contraintList) {
+//    String variableName = lastDecisionVariable.name();
+//    String patternName = variableName.substring(variableName.indexOf('_') + 1);
+//
+//
+//  }
 
   @Override
   public boolean equals(Object o) {
@@ -1562,26 +1736,34 @@ public class DataStreamJob {
 
   Op[] operators = new Op[]{
     new Op("o1",
-      new String[]{"1", "2", "3", "0"}),
-//      new Pattern("Seq(001)", map -> Math.min(map.get("1").doubleValue() * (1 - map.get("x1")), map.get("0").doubleValue() * (1 - map.get("x0")) / 2)),
-//      new Pattern("123",
-//        map -> Math.min(map.get("1").doubleValue() * (1 - map.get("x1")),
-//          Math.min(map.get("2").doubleValue() * (1 - map.get("x2")), map.get("3").doubleValue() * (1 - map.get("x3")))))),
+      new String[]{"1", "2", "3", "0"},
+      new EventPattern[]{
+        new EventPattern("11", "SEQ:0|2:1|1", new String[]{"o3"}),
+        new EventPattern("12", "AND:1:2:3", new String[]{"o4"})
+      },
+      false),
 
     new Op("o2",
-      new String[]{"1", "2", "3", "0"}),
-//      new Pattern("Seq(001)", map -> Math.min(map.get("1").doubleValue() * (1 - map.get("x1")), map.get("0").doubleValue() * (1 - map.get("x0")) / 2)),
-//      new Pattern("123",
-//        map -> Math.min(map.get("1").doubleValue() * (1 - map.get("x1")),
-//          Math.min(map.get("2").doubleValue() * (1 - map.get("x2")), map.get("3").doubleValue() * (1 - map.get("x3")))))),
+      new String[]{"1", "2", "3", "0"},
+      new EventPattern[]{
+        new EventPattern("21", "SEQ:0|2:1|1", new String[]{"o3"}),
+        new EventPattern("22", "AND:1:2:3", new String[]{"o4"})
+      },
+      false),
 
     new Op("o3",
-      new String[]{"11", "21"}),
-//      new Pattern("Q11Q21", map -> Math.min(map.get("11").doubleValue() * (1 - map.get("x11")), map.get("21").doubleValue() * (1 - map.get("x21"))))),
+      new String[]{"11", "21"},
+      new EventPattern[]{
+        new EventPattern("1000", "AND:11:21", null),
+      },
+      true),
 
     new Op("o4",
-      new String[]{"12", "22"})
-//      new Pattern("Q12Q22", map -> Math.min(map.get("12").doubleValue() * (1 - map.get("x12")), map.get("22").doubleValue() * (1 - map.get("x22")))))
+      new String[]{"12", "22"},
+      new EventPattern[]{
+        new EventPattern("2000", "AND:12:22", null),
+      },
+      true)
   };
 
   KafkaSource<String> globalChannelIn = KafkaSource.<String>builder()
@@ -1874,7 +2056,7 @@ public class DataStreamJob {
 //      }
 //    }).print();
 
-//    Pattern<Measurement, ?> pat = Pattern.<Measurement>begin("start", AfterMatchSkipStrategy.skipPastLastEvent())
+//    EventPattern<Measurement, ?> pat = EventPattern.<Measurement>begin("start", AfterMatchSkipStrategy.skipPastLastEvent())
 //      .where(SimpleCondition.of(meas -> meas.machineId == 0))
 //      .followedBy("middle")
 //      .where(SimpleCondition.of(meas -> meas.machineId == 0))
@@ -1934,7 +2116,7 @@ public class DataStreamJob {
 //
 
 
-//    Pattern<Measurement, ?> pat = Pattern.<Measurement>begin("start", AfterMatchSkipStrategy.skipPastLastEvent())
+//    EventPattern<Measurement, ?> pat = EventPattern.<Measurement>begin("start", AfterMatchSkipStrategy.skipPastLastEvent())
 //      .where(SimpleCondition.of(meas -> true))
 //      .followedBy("middle")
 //      .where(new IterativeCondition<Measurement>() {
@@ -2001,7 +2183,7 @@ public class DataStreamJob {
 //      }
 //    }).print();
 
-//    Pattern<Measurement, ?> pattern = Pattern.<Measurement>begin("start", AfterMatchSkipStrategy.skipPastLastEvent())
+//    EventPattern<Measurement, ?> pattern = EventPattern.<Measurement>begin("start", AfterMatchSkipStrategy.skipPastLastEvent())
 //      .where(SimpleCondition.of(meas -> meas.eventTime > 0))
 //      .followedBy("middle")
 //      .where(new IterativeCondition<Measurement>() {
@@ -2059,9 +2241,9 @@ public class DataStreamJob {
 //    // events are being created right now is too high
 //
 //    // Patterns are defined and matches are stored in pattern streams after being read
-//    Pattern<Measurement, ?> pattern1 = PatternCreator.seq(10, 0, 0, 1);
-//    Pattern<Measurement, ?> pattern2 = PatternCreator.seq(10, 1, 2, 3);
-//    Pattern<Measurement, ?> pattern3 = PatternCreator.lazySeq(10);
+//    EventPattern<Measurement, ?> pattern1 = PatternCreator.seq(10, 0, 0, 1);
+//    EventPattern<Measurement, ?> pattern2 = PatternCreator.seq(10, 1, 2, 3);
+//    EventPattern<Measurement, ?> pattern3 = PatternCreator.lazySeq(10);
 //
 //    SingleOutputStreamOperator<Measurement> shedder1 =
 //      source1.process(new Shedder(outputTag)).name("Shedder1");
