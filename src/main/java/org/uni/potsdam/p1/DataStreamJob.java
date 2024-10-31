@@ -19,6 +19,11 @@
 package org.uni.potsdam.p1;
 
 import com.google.gson.*;
+import com.google.ortools.Loader;
+import com.google.ortools.linearsolver.MPConstraint;
+import com.google.ortools.linearsolver.MPObjective;
+import com.google.ortools.linearsolver.MPSolver;
+import com.google.ortools.linearsolver.MPVariable;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.OpenContext;
@@ -586,16 +591,18 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
   String[] lambdaKeys;
   String[] ptimes;
   String groupName;
-  double LATENCY_BOUND = 0.001;
+  public static double LATENCY_BOUND = 10.15E-3;
   double lastLambda = 0.;
   double lastPtime = 0.;
+  OutputTag<String> sosOutput;
 
   double lastAverage = 0.;
 
-  public SmartAnalyser(String groupName, String[] lambdaKeys, String[] ptimes) {
+  public SmartAnalyser(String groupName, String[] lambdaKeys, String[] ptimes, OutputTag<String> sosOutput) {
     this.lambdaKeys = lambdaKeys;
     this.ptimes = ptimes;
     this.groupName = groupName;
+    this.sosOutput = sosOutput;
   }
 
   @Override
@@ -626,7 +633,7 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
       double ratioLambda = Math.abs(1 - value.get("total") / (lastLambda == 0 ? 1 : lastLambda));
       double ratioPtime = Math.abs(1 - map2.get("total") / (lastPtime == 0 ? 1 : lastPtime));
       if (lastAverage != 0.) {
-        if ((value.get("batch") > 1000. && value.get("batch") % 100 < 1) || ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND)) {
+        if ((value.get("batch") > 1000. && value.get("batch") % 550 < 1) || ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND)) {
 //        if ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND) {
 //          value.put("B", B);
 //          out.collect(value);
@@ -639,13 +646,13 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
           Metrics empty = new Metrics(value.name, "overloaded", 0);
           empty.id = id;
           out.collect(empty);
+          ctx.output(sosOutput, groupName + " B: " + B + " p: " + calculatedP + " ratio: " + ratio + " batch: " + value.get("batch") + " map: " + total + " mu: " + (calculatedP == 0 ? 0 : 1 / calculatedP) + " last: " + lastAverage);
 //          ctx.output(sosOutput, "snap:" + id);
 //          out.collect(output);
 //          out.collect(value);
 //          map2.clear();
         }
       }
-//      ctx.output(sosOutput, groupName + " B: " + B + " p: " + calculatedP + " ratio: " + ratio + " batch: " + value.get("batch") + " map: " + total + " mu: " + (calculatedP == 0 ? 0 : 1 / calculatedP) + " last: " + lastAverage);
       lastAverage = calculatedP;
       lastPtime = map2.get("total");
       lastLambda = total;
@@ -674,7 +681,7 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
       double ratioLambda = Math.abs(1 - map1.get("total") / (lastLambda == 0 ? 1 : lastLambda));
       double ratioPtime = Math.abs(1 - value.get("total") / (lastPtime == 0 ? 1 : lastPtime));
       if (lastAverage != 0.) {
-        if ((value.get("batch") > 1000. && value.get("batch") % 100 < 1) || ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND)) {
+        if ((value.get("batch") > 1000. && value.get("batch") % 550 < 1) || ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND)) {
 //        if ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND) {
 //          map1.put("B", B);
 //          value.put("mu", 1 / calculatedP);
@@ -686,13 +693,13 @@ class SmartAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Met
           Metrics empty = new Metrics(value.name, "overloaded", 0);
           empty.id = id;
           out.collect(empty);
+          ctx.output(sosOutput, groupName + " B: " + B + " p: " + calculatedP + " ratio: " + ratio + " batch: " + value.get("batch") + " map: " + total + " mu: " + (calculatedP == 0 ? 0 : 1 / calculatedP) + " last: " + lastAverage);
 //          ctx.output(sosOutput, "snap:" + id);
 //          out.collect(output);
 //          out.collect(value);
 //          map1.clear();
         }
       }
-//      ctx.output(sosOutput, groupName + " B: " + B + " p: " + calculatedP + " ratio: " + ratio + " batch: " + value.get("batch") + " map: " + total + " mu: " + (calculatedP == 0 ? 0 : 1 / calculatedP) + " last: " + lastAverage);
       lastAverage = calculatedP;
       lastPtime = value.get("total");
       lastLambda = total;
@@ -704,6 +711,7 @@ class EventPattern implements Serializable {
   public String name;
   public String type;
   public String[] downstreamOperators;
+  boolean wasVisited;
 
   public EventPattern() {
   }
@@ -725,6 +733,14 @@ class EventPattern implements Serializable {
   @Override
   public int hashCode() {
     return Objects.hash(name, type);
+  }
+
+  public void visit() {
+    wasVisited = true;
+  }
+
+  public void clear() {
+    wasVisited = false;
   }
 }
 
@@ -761,12 +777,30 @@ class Op implements Serializable {
     return result.toString();
   }
 
+  public EventPattern getPattern(String patternName) {
+    for (EventPattern pattern : patterns) {
+      if (pattern.name.equals(patternName)) {
+        return pattern;
+      }
+    }
+    throw new IllegalArgumentException("Pattern not contained in the operator.");
+  }
+
   public Metrics get(String key) {
     return metrics[indexer.get(key)];
   }
 
   public Metrics put(String key, Metrics value) {
     return metrics[indexer.get(key)] = value;
+  }
+
+  public boolean hasPattern(String pattern) {
+    for (EventPattern opPattern : patterns) {
+      if (opPattern.name.equals(pattern)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public boolean isReady() {
@@ -781,6 +815,9 @@ class Op implements Serializable {
   public void clear() {
     for (int i = 0; i < metrics.length; i++) {
       metrics[i] = null;
+    }
+    for (EventPattern pattern : patterns) {
+      pattern.clear();
     }
   }
 
@@ -877,161 +914,157 @@ class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
       String lastOverloadedOperator = jobQueue.iterator().next();
       Op overloadedOp = operatorsList[indexer.get(lastOverloadedOperator)];
 
-//      // import libraries
-//      Loader.loadNativeLibraries();
-//
-//      // declare solver
-//      MPSolver solver = MPSolver.createSolver("GLOP");
+      // import libraries
+      Loader.loadNativeLibraries();
 
-//      // create decision variables for the overloaded operator
-//      int numberOfInputs = overloadedOp.inputTypes.length;
-//      int numberOfPatterns = overloadedOp.patterns.length;
-//      MPVariable[] decisionVariablesX = new MPVariable[numberOfInputs * numberOfPatterns];
-//      for (int i = 0, indexPatterns = 0; i < decisionVariablesX.length; i++) {
-//        decisionVariablesX[i] = solver.makeNumVar(0., 1., "x_" + overloadedOp.patterns[indexPatterns] + "_" + overloadedOp.inputTypes[i % numberOfInputs]);
-//        if (i == numberOfInputs - 1) {
-//          indexPatterns++;
-//        }
-//      }
-//
-//      // create decision variables for the direct outputs of the decision operator
-//      MPVariable[] decisionVariablesY = new MPVariable[numberOfPatterns];
-//      for (int i = 0; i < decisionVariablesY.length; i++) {
-//        String pattern = overloadedOp.patterns[i].name;
-//        decisionVariablesY[i] = solver.makeNumVar(0, overloadedOp.get("mu").get(pattern), "y_" + pattern);
-//      }
-//
-//      // create decision variable for the sinks
-//      Map<String, MPVariable> decisionVariablesSinks = new HashMap<>(sinkOperators.size());
-//      for (String sinkName : sinkOperators) {
-//        Op sinkOperator = operatorsList[indexer.get(sinkName)];
-//        for (EventPattern pattern : sinkOperator.patterns) {
-//          decisionVariablesSinks.put(sinkName, solver.makeNumVar(0, sinkOperator.get("mu").get(pattern.name), "sink_" + pattern));
-//        }
-//      }
-//
-//      // declare time constraint
-//      double totalInputRate = overloadedOp.get("lambdaIn").get("total");
-//      double totalProcessingTime = overloadedOp.get("ptime").get("total");
-//      double p = Arrays.stream(overloadedOp.inputTypes).map(inputType -> (overloadedOp.get("lambdaIn").get(inputType) / totalInputRate) * totalProcessingTime).reduce(0., Double::sum);
-//      double pStar = 1 / ((1 / LATENCY_BOUND) + totalInputRate);
-//
-//      MPConstraint timeConstraint = solver.makeConstraint(p - pStar, MPSolver.infinity(), "time_constraint");
-//      double ptime = overloadedOp.get("ptime").get(overloadedOp.patterns[0].name);
-//      for (int i = 0, indexPatterns = 0; i < decisionVariablesX.length; i++) {
-//        String inputType = overloadedOp.inputTypes[i % numberOfInputs];
-//        double factor = (overloadedOp.get("lambdaIn").get(inputType) / totalInputRate) * ptime;
-//        timeConstraint.setCoefficient(decisionVariablesX[i], factor);
-//        if (i == numberOfInputs - 1 && indexPatterns < overloadedOp.patterns.length - 1) {
-//          ptime = overloadedOp.get("ptime").get(overloadedOp.patterns[++indexPatterns].name);
-//        }
-//      }
-//
-//      // set constraints for the selectivity functions
-//
-//      // set objective function
-//      MPObjective objective = solver.objective();
-//      for (String sinkName : sinkOperators) {
-//        objective.setCoefficient(decisionVariablesSinks.get(sinkName), 1.);
-//      }
-//      objective.setMaximization();
+      // declare solver
+      MPSolver solver = MPSolver.createSolver("GLOP");
 
+      // create decision variables for the overloaded operator
+      int numberOfInputs = overloadedOp.inputTypes.length;
+      int numberOfPatterns = overloadedOp.patterns.length;
+      Map<String, MPVariable> decisionVariablesX = new HashMap<>(numberOfInputs * numberOfPatterns);
+      for (int i = 0, indexPatterns = 0; i < numberOfInputs * numberOfPatterns; i++) {
+        String variableName = overloadedOp.patterns[indexPatterns].name + "_" + overloadedOp.inputTypes[i % numberOfInputs];
+        decisionVariablesX.put(variableName, solver.makeNumVar(0., 1., "x_" + variableName));
+        if (i == numberOfInputs - 1) {
+          indexPatterns++;
+        }
+      }
 
-      String output = "";
-//      String[] inputNames = "0 1 2 3".split(" ");
-//      String[] patterns = "11 12".split(" ");
-//      double processingRate = 110.974;
-//      double processingRateSink1 = 27.5;
-//      double processingRateSink2 = 54.73;
-//      double[] inputRates = new double[]{28.85, 24.41, 26.64, 31.07};
-//      double sum = 110.988;
-//      double[] ptimes = new double[]{4.46E-6, 1.162E-5};
-//      double ptimeSum = 1.62E-5;
-//      double p = Arrays.stream(inputRates).map(input -> (input / sum) * ptimeSum).sum();
-//
-//      // outputs of the overloaded operator
-//      MPVariable output1 = solver.makeNumVar(0, processingRate, "output1");
-//      MPVariable output2 = solver.makeNumVar(0, processingRate, "output2");
-//
-//      // inputs of the overloaded operator
-//      MPVariable[] decisionVariables = new MPVariable[patterns.length * inputNames.length];
-//      for (int i = 0, indexPatterns = 0; i < decisionVariables.length; i++) {
-//        decisionVariables[i] = solver.makeNumVar(0., 1., "x_" + patterns[indexPatterns] + "_" + inputNames[i % inputNames.length]);
-//        if (i == inputNames.length - 1) {
-//          indexPatterns++;
-//        }
-//      }
-//
-//      // outputs to the sinks
-//      MPVariable sink1 = solver.makeNumVar(0, processingRateSink1, "sink1");
-//      MPVariable sink2 = solver.makeNumVar(0, processingRateSink2, "sink2");
-//
-//      double pstar = 1 / ((1 / 10.15E-6) + 110.98);
-//
-//      System.out.println(p > pstar);
-//      double infinity = Double.POSITIVE_INFINITY;
-//
-//      // constraint 1
-//      // local output rates are less or equal than the shed input rates - Pattern1
-//      //Pattern11
-//      MPConstraint ct1 = solver.makeConstraint(-infinity, 28.85, "y11_0");
-//      ct1.setCoefficient(output1, 2);
-//      ct1.setCoefficient(decisionVariables[0], 28.85);
-//
-//      MPConstraint ct2 = solver.makeConstraint(-infinity, 24.41, "y11_1");
-//      ct2.setCoefficient(output1, 1);
-//      ct2.setCoefficient(decisionVariables[1], 24.41);
-//
-//      //Pattern12
-//      MPConstraint ct5 = solver.makeConstraint(-infinity, 24.41, "y12_1");
-//      ct5.setCoefficient(output2, 1);
-//      ct5.setCoefficient(decisionVariables[inputRates.length + 1], 24.41);
-//
-//      MPConstraint ct3 = solver.makeConstraint(-infinity, 26.64, "y12_2");
-//      ct3.setCoefficient(output2, 1);
-//      ct3.setCoefficient(decisionVariables[inputRates.length + 2], 26.64);
-//
-//      MPConstraint ct4 = solver.makeConstraint(-infinity, 31.07, "y12_3");
-//      ct4.setCoefficient(output2, 1);
-//      ct4.setCoefficient(decisionVariables[inputRates.length + 3], 31.07);
-//
-//      // constraints for the sinks
-//      MPConstraint ct6 = solver.makeConstraint(-infinity, 12.95, "sink_21");
-//      ct6.setCoefficient(sink1, 1);
-//
-//      MPConstraint ct7 = solver.makeConstraint(-infinity, 0, "sink_11");
-//      ct7.setCoefficient(sink1, 1);
-//      ct7.setCoefficient(output1, -1);
-//
-//      MPConstraint ct8 = solver.makeConstraint(-infinity, 0, "sink_12");
-//      ct8.setCoefficient(sink2, 1);
-//      ct8.setCoefficient(output2, -1);
-//
-//      MPConstraint ct9 = solver.makeConstraint(-infinity, 24.05, "sink_22");
-//      ct9.setCoefficient(sink2, 1);
-//
-//      // constraint 3
-//      MPConstraint pCt = solver.makeConstraint(p - pstar, infinity, "Time");
-//      pCt.setCoefficient(decisionVariables[0], (inputRates[0] / sum) * ptimes[0]);
-//      pCt.setCoefficient(decisionVariables[1], (inputRates[1] / sum) * ptimes[0]);
-//      pCt.setCoefficient(decisionVariables[2], (inputRates[2] / sum) * ptimes[0]);
-//      pCt.setCoefficient(decisionVariables[3], (inputRates[3] / sum) * ptimes[0]);
-//      pCt.setCoefficient(decisionVariables[4], (inputRates[0] / sum) * ptimes[1]);
-//      pCt.setCoefficient(decisionVariables[5], (inputRates[1] / sum) * ptimes[1]);
-//      pCt.setCoefficient(decisionVariables[6], (inputRates[2] / sum) * ptimes[1]);
-//      pCt.setCoefficient(decisionVariables[7], (inputRates[3] / sum) * ptimes[1]);
-//
-//      MPObjective objective = solver.objective();
-//      objective.setCoefficient(sink1, 1);
-//      objective.setCoefficient(sink2, 1);
-//      objective.setMaximization();
-//      StringBuilder result = new StringBuilder();
-//      for (MPVariable var : decisionVariables) {
-//        result.append(var.name() + " = " + var.solutionValue() + " ");
-//      }
-//      MPSolver.ResultStatus results = solver.solve();
-//      String output = String.format("Solution:%nObjective value: %f%nSink1: %f%nSink2: %f%ny11: %f%ny12: %f%n%s%n"
-//        , objective.value(), sink1.solutionValue(), sink2.solutionValue(), output1.solutionValue(), output2.solutionValue(), result.toString());
+      // create decision variables for the direct outputs of the decision operator
+      Map<String, MPVariable> decisionVariablesY = new HashMap<>(numberOfPatterns);
+      Map<String, MPVariable> decisionVariablesSinks = new HashMap<>(sinkOperators.size());
+      for (int i = 0; i < numberOfPatterns; i++) {
+        String pattern = overloadedOp.patterns[i].name;
+        MPVariable yDv = solver.makeNumVar(0, overloadedOp.get("mu").get("total"), "y_" + pattern);
+        decisionVariablesY.put(pattern, yDv);
+        if (overloadedOp.isSinkOperator) {
+          decisionVariablesSinks.put(pattern, yDv);
+        }
+      }
+
+      // create decision variable for the sinks - use operator's name as key
+      for (String sinkName : sinkOperators) {
+        if (sinkName.equals(overloadedOp.name)) {
+          continue;
+        }
+        Op sinkOperator = operatorsList[indexer.get(sinkName)];
+        decisionVariablesSinks.put(sinkName, solver.makeNumVar(0, sinkOperator.get("mu").get("total"), "sink_" + sinkName));
+      }
+
+      double infinity = Double.POSITIVE_INFINITY;
+      // set constraints for the selectivity functions
+      for (EventPattern pattern : overloadedOp.patterns) {
+        // get pattern name of the last decisionVariable passed to this method
+        String[] patternInfo = pattern.type.split(":");
+        switch (patternInfo[0]) {
+          case "AND": {
+            for (int i = 1; i < patternInfo.length; i++) {
+              String inputType = patternInfo[i];
+              double bound = overloadedOp.get("lambdaIn").get(inputType);
+              MPConstraint constraint = solver.makeConstraint(-infinity, bound, "y_" + pattern.name + "_" + inputType);
+              constraint.setCoefficient(Objects.requireNonNull(decisionVariablesY.get(pattern.name)), 1);
+              constraint.setCoefficient(Objects.requireNonNull(decisionVariablesX.get(pattern.name + "_" + inputType)), bound);
+            }
+            break;
+          }
+          case "SEQ": {
+            for (int i = 1; i < patternInfo.length; i++) {
+              String typeInfo = patternInfo[i];
+              int separator = typeInfo.indexOf("|");
+              String inputType = typeInfo.substring(0, separator);
+              double bound = overloadedOp.get("lambdaIn").get(inputType);
+              MPConstraint constraint = solver.makeConstraint(-infinity, bound, "y_" + pattern.name + "_" + inputType);
+              constraint.setCoefficient(Objects.requireNonNull(decisionVariablesY.get(pattern.name)), Double.valueOf(typeInfo.substring(separator + 1)));
+              constraint.setCoefficient(Objects.requireNonNull(decisionVariablesX.get(pattern.name + "_" + inputType)), bound);
+            }
+            break;
+          }
+          case "OR": {
+            for (int i = 1; i < patternInfo.length; i++) {
+              String inputType = patternInfo[i];
+              double bound = overloadedOp.get("lambdaIn").get(inputType);
+              MPConstraint constraint = solver.makeConstraint(bound, infinity, "y_" + pattern.name + "_" + inputType);
+              constraint.setCoefficient(Objects.requireNonNull(decisionVariablesY.get(pattern.name)), 1);
+              constraint.setCoefficient(Objects.requireNonNull(decisionVariablesX.get(pattern.name + "_" + inputType)), bound);
+            }
+          }
+        }
+        if (pattern.downstreamOperators != null) {
+          for (String downStreamOp : pattern.downstreamOperators) {
+            MPConstraint constraint = solver.makeConstraint(-infinity, 0, "sink_" + pattern.name);
+            constraint.setCoefficient(Objects.requireNonNull(decisionVariablesSinks.get(downStreamOp)), 1);
+            constraint.setCoefficient(Objects.requireNonNull(decisionVariablesY.get(pattern.name)), -1);
+          }
+        }
+      }
+
+      for (String sink : sinkOperators) {
+        if (overloadedOp.name.equals(sink)) {
+          continue;
+        }
+        Op operator = operatorsList[indexer.get(sink)];
+        for (String input : operator.inputTypes) {
+          if (overloadedOp.hasPattern(input)) {
+            continue;
+          }
+          MPConstraint constraint = solver.makeConstraint(-infinity,
+            Objects.requireNonNull(operator.get("lambdaIn").get(input)), "sink_" + input);
+          constraint.setCoefficient(decisionVariablesSinks.get(sink), 1);
+        }
+      }
+
+      // declare time constraint
+      double totalInputRate = overloadedOp.get("lambdaIn").get("total");
+      double totalProcessingTime = overloadedOp.get("ptime").get("total");
+      double p = Arrays.stream(overloadedOp.inputTypes).map(inputType -> (overloadedOp.get("lambdaIn").get(inputType) / totalInputRate) * totalProcessingTime).reduce(0., Double::sum);
+      double pStar = 1 / ((1 / LATENCY_BOUND) + totalInputRate);
+
+      MPConstraint timeConstraint = solver.makeConstraint(p - pStar, MPSolver.infinity(), "time_constraint");
+      double ptime = overloadedOp.get("ptime").get(overloadedOp.patterns[0].name);
+      for (int i = 0, indexPatterns = 0; i < decisionVariablesX.size(); i++) {
+        String inputType = overloadedOp.inputTypes[i % numberOfInputs];
+        double factor = (overloadedOp.get("lambdaIn").get(inputType) / totalInputRate) * ptime;
+        MPVariable dv = Objects.requireNonNull(decisionVariablesX.get(overloadedOp.patterns[indexPatterns].name + "_" + inputType));
+        timeConstraint.setCoefficient(dv, factor);
+        if (i == numberOfInputs - 1 && indexPatterns < overloadedOp.patterns.length - 1) {
+          ptime = overloadedOp.get("ptime").get(overloadedOp.patterns[++indexPatterns].name);
+        }
+      }
+
+      // set objective function
+      MPObjective objective = solver.objective();
+      decisionVariablesSinks.values().forEach(dv -> objective.setCoefficient(dv, 1));
+      objective.setMaximization();
+
+      // solve LP
+      MPSolver.ResultStatus results = solver.solve();
+
+      StringBuilder output = new StringBuilder();
+
+      output.append("Results: ").append(results);
+      output.append("\nSolution: ").append(objective.value());
+      output.append("\nSinks: \n");
+      decisionVariablesSinks.values().forEach(dv -> output.append(dv.name()).append(": ").append(dv.solutionValue()).append("\n"));
+      output.append("\nOutputs: \n");
+      decisionVariablesY.values().forEach(dv -> output.append(dv.name()).append(": ").append(dv.solutionValue()).append("\n"));
+      output.append("\nInputs: \n");
+      decisionVariablesX.values().forEach(dv -> output.append(dv.name()).append(": ").append(dv.solutionValue()).append("\n"));
+      output.append("\nConstraints: \n");
+      Arrays.stream(solver.constraints()).map(cst -> String.format("%s\n", cst.name())).forEach(output::append);
+      output.append("\nProcessing Time: \n");
+      output.append("p: " + p + " pstar: " + pStar).append("\n");
+      output.append(overloadedOp.name).append(":");
+      for (int i = 0, indexPatterns = 0; i < numberOfInputs * numberOfPatterns; i++) {
+        String variableName = overloadedOp.patterns[indexPatterns].name + "_" + overloadedOp.inputTypes[i % numberOfInputs];
+        output.append(variableName).append("|").append(decisionVariablesX.get(variableName).solutionValue()).append(":");
+        if (i == numberOfInputs - 1) {
+          indexPatterns++;
+        }
+      }
+//      output.append("\nTime Constraints: \n");
+//      decisionVariablesX.values().forEach(dv -> output.append(dv.name()).append(": ").append(timeConstraint.getCoefficient(dv)).append("\n"));
 
 
       // end work
@@ -1046,12 +1079,33 @@ class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
     }
   }
 
-//  public void fillConstraintList(Op currentOperator, MPVariable lastDecisionVariable, List<MPConstraint> contraintList) {
-//    String variableName = lastDecisionVariable.name();
-//    String patternName = variableName.substring(variableName.indexOf('_') + 1);
-//
-//
-//  }
+  public void fillConstraintList(Op currentOperator, MPVariable lastDecisionVariable, List<MPConstraint> contraintList, MPSolver solver) {
+
+    // get pattern name of the last decisionVariable passed to this method
+    String variableName = lastDecisionVariable.name();
+    String typeName = variableName.substring(variableName.indexOf('_') + 1);
+
+    // iterate over the different patterns implemented by the current operator
+    for (EventPattern pattern : currentOperator.patterns) {
+
+      // determine the type of pattern being implemented
+      String[] information = pattern.type.split(":");
+
+//      MPVariable patternOutputVariable = solver.makeNumVar(0,currentOperator.get("mu").get(pattern.name),)
+      if (information[0].equals("AND")) {
+        for (int i = 1; i < information.length; i++) {
+          String currentType = information[i];
+          MPConstraint outputConstraint = solver.makeConstraint(Double.NEGATIVE_INFINITY, currentOperator.get("lambdaIn").get(currentType), "y_" + pattern);
+          if (information[i].equals(typeName)) {
+            outputConstraint.setCoefficient(lastDecisionVariable, -1);
+            outputConstraint.setCoefficient(lastDecisionVariable, -1);
+          }
+        }
+      }
+    }
+
+
+  }
 
   @Override
   public boolean equals(Object o) {
@@ -1846,42 +1900,41 @@ public class DataStreamJob {
     };
 
     // count the output rates of the sources per second and forward the events to the operators
-    SingleOutputStreamOperator<Measurement> counter1 = source1.keyBy(me -> 1).connect(global).process(new SmartCounter("o1", new String[]{"0", "1", "2", "3"}, toAnalyser1, toCoordinator, CONTROL_BATCH_SIZE));
-    SingleOutputStreamOperator<Measurement> counter2 = source2.keyBy(me -> 1).connect(global).process(new SmartCounter("o2", new String[]{"0", "1", "2", "3"}, toAnalyser2, toCoordinator, CONTROL_BATCH_SIZE));
+    SingleOutputStreamOperator<Measurement> counter1 = source1.keyBy(me -> 1).connect(global).process(new SmartCounter("o1", new String[]{"0", "1", "2", "3"}, toAnalyser1, toCoordinator, CONTROL_BATCH_SIZE)).name("Counter1");
+    SingleOutputStreamOperator<Measurement> counter2 = source2.keyBy(me -> 1).connect(global).process(new SmartCounter("o2", new String[]{"0", "1", "2", "3"}, toAnalyser2, toCoordinator, CONTROL_BATCH_SIZE)).name("Counter2");
 
     // set operators 1 and 2 and collect both their processing (mu) and their output rates (lambda)
-    SingleOutputStreamOperator<Measurement> operator1 = counter1.keyBy(me -> 1).connect(global).process(new SmartOperator("o1", new String[]{"0", "1", "2", "3"}, new String[]{"11", "12"}, toOperator4, toAnalyser1, outputOp1, toCoordinator, CONTROL_BATCH_SIZE));
-    DataStream<Metrics> lambdaOperator1 = operator1.getSideOutput(outputOp1);
+    SingleOutputStreamOperator<Measurement> operator1 = counter1.keyBy(me -> 1).connect(global).process(new SmartOperator("o1", new String[]{"0", "1", "2", "3"}, new String[]{"11", "12"}, toOperator4, toAnalyser1, outputOp1, toCoordinator, CONTROL_BATCH_SIZE)).name("Operator1");
 
-    SingleOutputStreamOperator<Measurement> operator2 = counter2.keyBy(me -> 1).connect(global).process(new SmartOperator("o2", new String[]{"0", "1", "2", "3"}, new String[]{"21", "22"}, toOperator4, toAnalyser2, outputOp2, toCoordinator, CONTROL_BATCH_SIZE));
-    DataStream<Metrics> lambdaOperator2 = operator2.getSideOutput(outputOp2);
+    SingleOutputStreamOperator<Measurement> operator2 = counter2.keyBy(me -> 1).connect(global).process(new SmartOperator("o2", new String[]{"0", "1", "2", "3"}, new String[]{"21", "22"}, toOperator4, toAnalyser2, outputOp2, toCoordinator, CONTROL_BATCH_SIZE)).name("Operator2");
 
     // connect the stream of output rates of the sources with the stream of processing rates of the operators
     SingleOutputStreamOperator<Metrics> analyser1 = counter1.getSideOutput(toAnalyser1).keyBy(map -> map.get("batch"))
       .connect(operator1.getSideOutput(toAnalyser1).keyBy(map -> map.get("batch")))
-      .process(new SmartAnalyser("o1", new String[]{"1", "2", "3", "0"}, new String[]{"11", "12"}));
+      .process(new SmartAnalyser("o1", new String[]{"1", "2", "3", "0"}, new String[]{"11", "12"}, toKafka))
+      .name("Analyser1");
 
     SingleOutputStreamOperator<Metrics> analyser2 = counter2.getSideOutput(toAnalyser2).keyBy(map -> map.get("batch"))
       .connect(operator2.getSideOutput(toAnalyser2).keyBy(map -> map.get("batch")))
-      .process(new SmartAnalyser("o2", new String[]{"1", "2", "3", "0"}, new String[]{"21", "22"}));
+      .process(new SmartAnalyser("o2", new String[]{"1", "2", "3", "0"}, new String[]{"21", "22"}, toKafka))
+      .name("Analyser2");
 
     // set operators 3 and 4 and collect both their processing (mu) and their output rates (lambda)
-    SingleOutputStreamOperator<Measurement> operator3 = operator1.union(operator2).keyBy(me -> 1).connect(global).process(new SmartComplexOperator("o3", new String[]{"11", "21"}, new String[]{"1000"}, toAnalyser3, toCoordinator, CONTROL_BATCH_SIZE));
+    SingleOutputStreamOperator<Measurement> operator3 = operator1.union(operator2).keyBy(me -> 1).connect(global).process(new SmartComplexOperator("o3", new String[]{"11", "21"}, new String[]{"1000"}, toAnalyser3, toCoordinator, CONTROL_BATCH_SIZE)).name("Operator3");
 
-    SingleOutputStreamOperator<Measurement> operator4 = operator1.getSideOutput(toOperator4).union(operator2.getSideOutput(toOperator4)).keyBy(me -> 1).connect(global).process(new SmartComplexOperator("o4", new String[]{"12", "22"}, new String[]{"2000"}, toAnalyser4, toCoordinator, CONTROL_BATCH_SIZE));
-
+    SingleOutputStreamOperator<Measurement> operator4 = operator1.getSideOutput(toOperator4).union(operator2.getSideOutput(toOperator4)).keyBy(me -> 1).connect(global).process(new SmartComplexOperator("o4", new String[]{"12", "22"}, new String[]{"2000"}, toAnalyser4, toCoordinator, CONTROL_BATCH_SIZE)).name("Operator4");
 
     SingleOutputStreamOperator<Metrics> joined = operator1.getSideOutput(outputOp1).keyBy(map -> map.get("batch")).connect(operator2.getSideOutput(outputOp2).keyBy(map -> map.get("batch"))).process(
-      new SmartJoiner(new String[]{"11", "21", "12", "22"}, new String[]{"21", "11", "22", "12"}, toAnalyser4));
+      new SmartJoiner(new String[]{"11", "21", "12", "22"}, new String[]{"21", "11", "22", "12"}, toAnalyser4)).name("Joined");
 
     SingleOutputStreamOperator<Metrics> analyser3 = joined.keyBy(map -> map.get("batch"))
       .connect(operator3.getSideOutput(toAnalyser3).keyBy(map -> map.get("batch")))
-      .process(new SmartAnalyser("o3", new String[]{"11", "21"}, new String[]{"1000"}));
+      .process(new SmartAnalyser("o3", new String[]{"11", "21"}, new String[]{"1000"}, toKafka)).name("Analyser3");
 
     SingleOutputStreamOperator<Metrics> analyser4 =
       joined.getSideOutput(toAnalyser4).keyBy(map -> map.get("batch"))
         .connect(operator4.getSideOutput(toAnalyser4).keyBy(map -> map.get("batch")))
-        .process(new SmartAnalyser("o4", new String[]{"12", "22"}, new String[]{"2000"}));
+        .process(new SmartAnalyser("o4", new String[]{"12", "22"}, new String[]{"2000"}, toKafka)).name("Analyser4");
 
     DataStream<Metrics> streamToCoordinator = analyser1.union(analyser2)
       .union(analyser3)
@@ -1893,13 +1946,14 @@ public class DataStreamJob {
       .union(operator3.getSideOutput(toCoordinator))
       .union(operator4.getSideOutput(toCoordinator));
 
-//    streamToCoordinator.map(Metrics::toString).sinkTo(control);
-
-//    joined.getSideOutput(toAnalyser4).union(operator4.getSideOutput(toAnalyser4))
-//      .keyBy(map -> map.get("batch")).map(Metrics::toString).sinkTo(control);
+//    analyser1.getSideOutput(toKafka)
+//      .union(analyser2.getSideOutput(toKafka))
+//      .union(analyser3.getSideOutput(toKafka))
+//      .union(analyser4.getSideOutput(toKafka))
+//      .sinkTo(control);
 
     SingleOutputStreamOperator<String> outie = streamToCoordinator
-      .keyBy(metric -> metric.id).process(new Coordinator(toKafka, operators));
+      .keyBy(metric -> metric.id).process(new Coordinator(toKafka, operators)).name("Coordinator");
 
     outie.sinkTo(control);
     outie.getSideOutput(toKafka).sinkTo(globalChannelOut);
