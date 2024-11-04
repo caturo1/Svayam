@@ -131,7 +131,7 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
       Map<String, MPVariable> decisionVariablesSinks = new HashMap<>(sinkOperators.size());
       for (int i = 0; i < numberOfPatterns; i++) {
         String pattern = overloadedOperatorInfo.patterns[i].name;
-        MPVariable yDv = solver.makeNumVar(0, overloadedOperatorInfo.get("mu").get("total"), "y_" + pattern);
+        MPVariable yDv = solver.makeNumVar(0, overloadedOperatorInfo.getValue("mu", "total"), "y_" + pattern);
         decisionVariablesY.put(pattern, yDv);
         if (overloadedOperatorInfo.isSinkOperator) {
           decisionVariablesSinks.put(pattern, yDv);
@@ -144,19 +144,19 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
           continue;
         }
         OperatorInfo sinkOperator = operatorsList[indexer.get(sinkName)];
-        decisionVariablesSinks.put(sinkName, solver.makeNumVar(0, sinkOperator.get("mu").get("total"), "sink_" + sinkName));
+        decisionVariablesSinks.put(sinkName, solver.makeNumVar(0, sinkOperator.getValue("mu", "total"), "sink_" + sinkName));
       }
 
       double infinity = Double.POSITIVE_INFINITY;
       // set constraints for the selectivity functions
       for (EventPattern pattern : overloadedOperatorInfo.patterns) {
-        // get pattern name of the last decisionVariable passed to this method
+        // getMetric pattern name of the last decisionVariable passed to this method
         String[] patternInfo = pattern.type.split(":");
         switch (patternInfo[0]) {
           case "AND": {
             for (int i = 1; i < patternInfo.length; i++) {
               String inputType = patternInfo[i];
-              double bound = overloadedOperatorInfo.get("lambdaIn").get(inputType);
+              double bound = overloadedOperatorInfo.getValue("lambdaIn", inputType);
               MPConstraint constraint = solver.makeConstraint(-infinity, bound, "y_" + pattern.name + "_" + inputType);
               constraint.setCoefficient(Objects.requireNonNull(decisionVariablesY.get(pattern.name)), 1);
               constraint.setCoefficient(Objects.requireNonNull(decisionVariablesX.get(pattern.name + "_" + inputType)), bound);
@@ -168,7 +168,7 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
               String typeInfo = patternInfo[i];
               int separator = typeInfo.indexOf("|");
               String inputType = typeInfo.substring(0, separator);
-              double bound = overloadedOperatorInfo.get("lambdaIn").get(inputType);
+              double bound = overloadedOperatorInfo.getValue("lambdaIn", inputType);
               MPConstraint constraint = solver.makeConstraint(-infinity, bound, "y_" + pattern.name + "_" + inputType);
               constraint.setCoefficient(Objects.requireNonNull(decisionVariablesY.get(pattern.name)), Double.parseDouble(typeInfo.substring(separator + 1)));
               constraint.setCoefficient(Objects.requireNonNull(decisionVariablesX.get(pattern.name + "_" + inputType)), bound);
@@ -178,7 +178,7 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
           case "OR": {
             for (int i = 1; i < patternInfo.length; i++) {
               String inputType = patternInfo[i];
-              double bound = overloadedOperatorInfo.get("lambdaIn").get(inputType);
+              double bound = overloadedOperatorInfo.getValue("lambdaIn", inputType);
               MPConstraint constraint = solver.makeConstraint(bound, infinity, "y_" + pattern.name + "_" + inputType);
               constraint.setCoefficient(Objects.requireNonNull(decisionVariablesY.get(pattern.name)), 1);
               constraint.setCoefficient(Objects.requireNonNull(decisionVariablesX.get(pattern.name + "_" + inputType)), bound);
@@ -204,26 +204,26 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
             continue;
           }
           MPConstraint constraint = solver.makeConstraint(-infinity,
-            Objects.requireNonNull(operator.get("lambdaIn").get(input)), "sink_" + input);
+            Objects.requireNonNull(operator.getMetric("lambdaIn").get(input)), "sink_" + input);
           constraint.setCoefficient(decisionVariablesSinks.get(sink), 1);
         }
       }
 
       // declare time constraint
-      double totalInputRate = overloadedOperatorInfo.get("lambdaIn").get("total");
-      double totalProcessingTime = overloadedOperatorInfo.get("ptime").get("total");
-      double p = Arrays.stream(overloadedOperatorInfo.inputTypes).map(inputType -> (overloadedOperatorInfo.get("lambdaIn").get(inputType) / totalInputRate) * totalProcessingTime).reduce(0., Double::sum);
+      double totalInputRate = overloadedOperatorInfo.getMetric("lambdaIn").get("total");
+      double totalProcessingTime = overloadedOperatorInfo.getMetric("ptime").get("total");
+      double p = Arrays.stream(overloadedOperatorInfo.inputTypes).map(inputType -> (overloadedOperatorInfo.getMetric("lambdaIn").get(inputType) / totalInputRate) * totalProcessingTime).reduce(0., Double::sum);
       double pStar = 1 / ((1 / LATENCY_BOUND) + totalInputRate);
 
       MPConstraint timeConstraint = solver.makeConstraint(p - pStar, MPSolver.infinity(), "time_constraint");
-      double ptime = overloadedOperatorInfo.get("ptime").get(overloadedOperatorInfo.patterns[0].name);
+      double ptime = overloadedOperatorInfo.getMetric("ptime").get(overloadedOperatorInfo.patterns[0].name);
       for (int i = 0, indexPatterns = 0; i < decisionVariablesX.size(); i++) {
         String inputType = overloadedOperatorInfo.inputTypes[i % numberOfInputs];
-        double factor = (overloadedOperatorInfo.get("lambdaIn").get(inputType) / totalInputRate) * ptime;
+        double factor = (overloadedOperatorInfo.getMetric("lambdaIn").get(inputType) / totalInputRate) * ptime;
         MPVariable dv = Objects.requireNonNull(decisionVariablesX.get(overloadedOperatorInfo.patterns[indexPatterns].name + "_" + inputType));
         timeConstraint.setCoefficient(dv, factor);
         if (i == numberOfInputs - 1 && indexPatterns < overloadedOperatorInfo.patterns.length - 1) {
-          ptime = overloadedOperatorInfo.get("ptime").get(overloadedOperatorInfo.patterns[++indexPatterns].name);
+          ptime = overloadedOperatorInfo.getMetric("ptime").get(overloadedOperatorInfo.patterns[++indexPatterns].name);
         }
       }
 
@@ -277,7 +277,7 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
 
   public void fillConstraintList(OperatorInfo currentOperator, MPVariable lastDecisionVariable, List<MPConstraint> contraintList, MPSolver solver) {
 
-    // get pattern name of the last decisionVariable passed to this method
+    // getMetric pattern name of the last decisionVariable passed to this method
     String variableName = lastDecisionVariable.name();
     String typeName = variableName.substring(variableName.indexOf('_') + 1);
 
@@ -287,11 +287,11 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
       // determine the type of pattern being implemented
       String[] information = pattern.type.split(":");
 
-//      MPVariable patternOutputVariable = solver.makeNumVar(0,currentOperator.get("mu").get(pattern.name),)
+//      MPVariable patternOutputVariable = solver.makeNumVar(0,currentOperator.getMetric("mu").getMetric(pattern.name),)
       if (information[0].equals("AND")) {
         for (int i = 1; i < information.length; i++) {
           String currentType = information[i];
-          MPConstraint outputConstraint = solver.makeConstraint(Double.NEGATIVE_INFINITY, currentOperator.get("lambdaIn").get(currentType), "y_" + pattern);
+          MPConstraint outputConstraint = solver.makeConstraint(Double.NEGATIVE_INFINITY, currentOperator.getMetric("lambdaIn").get(currentType), "y_" + pattern);
           if (information[i].equals(typeName)) {
             outputConstraint.setCoefficient(lastDecisionVariable, -1);
             outputConstraint.setCoefficient(lastDecisionVariable, -1);

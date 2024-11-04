@@ -14,10 +14,9 @@ public class Measurement implements Serializable {
     eventTime = System.currentTimeMillis();
   }
 
-  public Measurement(int id, int source) {
-    type = id;
-    eventTime = System.currentTimeMillis();
-    this.source = source;
+  public Measurement(long index) {
+    this();
+    message = String.valueOf(index);
   }
 
   public Measurement(int id, String message, int tab) {

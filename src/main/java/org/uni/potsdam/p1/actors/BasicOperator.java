@@ -15,12 +15,13 @@ import java.util.*;
 
 public class BasicOperator extends KeyedCoProcessFunction<Long, Measurement, String, Measurement> {
 
+  String groupName;
+
   Map<String, Integer> eventIndexer;
   OutputTag<Metrics> outputRates;
   OutputTag<Metrics> sosOutput;
   final int batchSize;
   double batch = 1.;
-  String groupName;
   final Deque<LocalTime> timeQueue;
   long[] countArray;
   long[] eventStoreArray;
@@ -44,6 +45,7 @@ public class BasicOperator extends KeyedCoProcessFunction<Long, Measurement, Str
   double batch2 = 1.;
   private final long[] rateStore1;
   private final long[] rateStore2;
+  Metrics result2;
 
   // variables for calculating the running average of the processing rates
   final Deque<LocalTime> processingRatesQueue;
@@ -52,7 +54,6 @@ public class BasicOperator extends KeyedCoProcessFunction<Long, Measurement, Str
   int accessIndexProcessingRates = 0;
   double lastAverageProcessingRates = 0.;
   Map<String, Integer> eventIndexer3;
-  Metrics result2;
   Metrics result3;
 
   // set shedding shares for this operator

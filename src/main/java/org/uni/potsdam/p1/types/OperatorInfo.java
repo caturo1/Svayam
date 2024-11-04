@@ -5,6 +5,22 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Objects;
 
+/**
+ * <p>This class stores the basic information about an operator:</p>
+ * <ul>
+ *   <li>Name</li>
+ *   <li>Input types</li>
+ *   <li>Patterns implemented</li>
+ *   <li>Metrics:
+ *   <ul>
+ *     <li>input rates = lambdaIn</li>
+ *     <li>output rates = lambdaOut</li>
+ *     <li>processing rates = mu</li>
+ *     <li>processing time pro pattern = ptime</li>
+ *   </ul>
+ *   <li>If the operator is a sink or is currently overloaded</li>
+ * </ul>
+ */
 public class OperatorInfo implements Serializable {
   public String[] inputTypes;
   public EventPattern[] patterns;
@@ -14,15 +30,22 @@ public class OperatorInfo implements Serializable {
   public HashMap<String, Integer> indexer = new HashMap<>(4);
   public Metrics[] metrics = new Metrics[4];
 
+  /**
+   * Constructs an empty {@link OperatorInfo} instance
+   */
   public OperatorInfo() {
-  }
-
-  public OperatorInfo(String name, String[] inputTypes, EventPattern[] patterns, boolean isSinkOperator) { //} EventPattern... patterns) {
-    this.inputTypes = inputTypes;
     String[] metrics = new String[]{"lambdaIn", "lambdaOut", "mu", "ptime"};
     for (int i = 0; i < metrics.length; i++) {
       indexer.put(metrics[i], i);
     }
+  }
+
+  /**
+   * Constructs an OperatorInfo instance with the desired parameters.
+   */
+  public OperatorInfo(String name, String[] inputTypes, EventPattern[] patterns, boolean isSinkOperator) { //} EventPattern... patterns) {
+    this();
+    this.inputTypes = inputTypes;
     this.patterns = patterns;
     this.isSinkOperator = isSinkOperator;
     this.name = name;
@@ -47,8 +70,12 @@ public class OperatorInfo implements Serializable {
     throw new IllegalArgumentException("Pattern not contained in the operator.");
   }
 
-  public Metrics get(String key) {
-    return metrics[indexer.get(key)];
+  public Metrics getMetric(String metric) {
+    return metrics[indexer.get(metric)];
+  }
+
+  public Double getValue(String metric, String value) {
+    return metrics[indexer.get(metric)].get(value);
   }
 
   public void put(String key, Metrics value) {
@@ -64,6 +91,11 @@ public class OperatorInfo implements Serializable {
     return false;
   }
 
+  /**
+   * Proofs if an {@link OperatorInfo} object has gathered metrics from every operator.
+   *
+   * @return true iff all {@link Metrics} objects contained in this object are not null.
+   */
   public boolean isReady() {
     for (Metrics metric : metrics) {
       if (metric == null) {
@@ -73,6 +105,9 @@ public class OperatorInfo implements Serializable {
     return true;
   }
 
+  /**
+   * Clears the metrics information contained in this object.
+   */
   public void clear() {
     Arrays.fill(metrics, null);
 
@@ -94,4 +129,48 @@ public class OperatorInfo implements Serializable {
   public int hashCode() {
     return Objects.hash(Arrays.hashCode(inputTypes), isOverloaded, name, indexer, Arrays.hashCode(metrics));
   }
+
+  /**
+   * Sets the name of an OperatorInfo object to the specified value.
+   *
+   * @param name the new name
+   * @return Reference to the given OperatorInfo-object
+   */
+  public OperatorInfo withName(String name) {
+    this.name = name;
+    return this;
+  }
+
+  /**
+   * Sets the input types of an OperatorInfo object to the specified value.
+   *
+   * @param types the event types represented as {@link String}
+   * @return Reference to the given OperatorInfo-object
+   */
+  public OperatorInfo withInputTypes(String... types) {
+    this.inputTypes = types;
+    return this;
+  }
+
+  /**
+   * Sets the patterns of an OperatorInfo object to the specified value.
+   *
+   * @param patterns the patterns represent as one or more {@link EventPattern}
+   * @return Reference to the given OperatorInfo-object
+   */
+  public OperatorInfo withPatterns(EventPattern... patterns) {
+    this.patterns = patterns;
+    return this;
+  }
+
+  /**
+   * Specify if this operator is connected to a sink.
+   *
+   * @return Reference to the given OperatorInfo-object
+   */
+  public OperatorInfo toSink() {
+    this.isSinkOperator = true;
+    return this;
+  }
+
 }

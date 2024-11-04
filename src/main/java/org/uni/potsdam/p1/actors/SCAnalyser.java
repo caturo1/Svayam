@@ -72,7 +72,7 @@ public class SCAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics,
           Metrics empty = new Metrics(value.name, "overloaded", 0);
           empty.id = id;
           out.collect(empty);
-//          ctx.output(sosOutput, groupName + " B: " + B + " p: " + calculatedP + " ratio: " + ratio + " batch: " + value.get("batch") + " map: " + total + " mu: " + (calculatedP == 0 ? 0 : 1 / calculatedP) + " last: " + lastAverage);
+//          ctx.output(sosOutput, groupName + " B: " + B + " p: " + calculatedP + " ratio: " + ratio + " batch: " + value.getMetric("batch") + " map: " + total + " mu: " + (calculatedP == 0 ? 0 : 1 / calculatedP) + " last: " + lastAverage);
         }
       }
       lastAverage = calculatedP;
@@ -117,7 +117,7 @@ public class SCAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics,
           Metrics empty = new Metrics(value.name, "overloaded", 0);
           empty.id = id;
           out.collect(empty);
-//          ctx.output(sosOutput, groupName + " B: " + B + " p: " + calculatedP + " ratio: " + ratio + " batch: " + value.get("batch") + " map: " + total + " mu: " + (calculatedP == 0 ? 0 : 1 / calculatedP) + " last: " + lastAverage);
+//          ctx.output(sosOutput, groupName + " B: " + B + " p: " + calculatedP + " ratio: " + ratio + " batch: " + value.getMetric("batch") + " map: " + total + " mu: " + (calculatedP == 0 ? 0 : 1 / calculatedP) + " last: " + lastAverage);
         }
       }
       lastAverage = calculatedP;
