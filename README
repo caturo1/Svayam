@@ -1,6 +1,17 @@
-A Flink application project using Java and Gradle.
+Test repository for the CEP-Flink-Project of University of Potsdam
 
-To package your job for submission to Flink, use: 'gradle shadowJar'. Afterwards, you'll find the
-jar to use in the 'build/libs' folder.
+To package your job for submission to Flink, use: 'gradle clean && gradle shadowJar'.
+Afterwards, you'll find the jar to use in the 'build/libs' folder.
 
-To run and test your application with an embedded instance of Flink use: 'gradle run'
+To activate the docker network use:
+'docker compose -f zk-single-kafka-single-flink.yml up -d' in this projects directory
+
+This will create a network with containers running: Kafka/Zookeeper, Flink Taskmanager
+and Flink Jobmanager. The kafka topics necessary for the application are created
+automatically.
+
+To deactivate the network use:
+'docker compose -f zk-single-kafka-single-flink.yml down -v' in this projects directory
+
+You can configure the global variables of the application in the Settings.java class.
+The Flink-query itself should be written in the DataStreamJob.java class
