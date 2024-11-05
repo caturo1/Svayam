@@ -78,6 +78,14 @@ public class OperatorInfo implements Serializable {
     return metrics[indexer.get(metric)].get(value);
   }
 
+  public String[] getInputTypes() {
+    return inputTypes;
+  }
+
+  public void setInputTypes(String[] inputTypes) {
+    this.inputTypes = inputTypes;
+  }
+
   public void put(String key, Metrics value) {
     metrics[indexer.get(key)] = value;
   }

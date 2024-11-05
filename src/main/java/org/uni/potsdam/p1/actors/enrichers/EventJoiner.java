@@ -1,4 +1,4 @@
-package org.uni.potsdam.p1.actors;
+package org.uni.potsdam.p1.actors.enrichers;
 
 import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.api.common.state.MapState;
@@ -10,6 +10,11 @@ import org.uni.potsdam.p1.types.Metrics;
 
 import java.util.Map;
 
+/**
+ * This class is used to join the output rates' information from two operators if they
+ * have multiple patterns that are used exclusively in many different operators. It gathers
+ * this information and forward it to the respective operators' analysers.
+ */
 public class EventJoiner extends KeyedCoProcessFunction<Double, Metrics, Metrics, Metrics> {
   MapState<String, Double> mapState;
   String[] keys;
@@ -37,6 +42,18 @@ public class EventJoiner extends KeyedCoProcessFunction<Double, Metrics, Metrics
     processJob(mapState, value, keys2, out, secondOutput, ctx);
   }
 
+  /**
+   * Creates new metrics for the operators downstream and fill them with their respective
+   * relevant input information.
+   *
+   * @param mapState     State containing the output rates from one of the upstream operators
+   * @param value        Current Metrics value acquired by the operator
+   * @param keys         Event input types
+   * @param out          Data collector in Flink
+   * @param secondOutput Side output for second downstream operator
+   * @param ctx          Flink's context variable
+   * @throws Exception Flink's exceptions
+   */
   public static void processJob(MapState<String, Double> mapState, Metrics value, String[] keys, Collector<Metrics> out, OutputTag<Metrics> secondOutput, Context ctx) throws Exception {
     if (!mapState.isEmpty()) {
       Metrics result = new Metrics("o3", "lambda", 4);
@@ -53,6 +70,15 @@ public class EventJoiner extends KeyedCoProcessFunction<Double, Metrics, Metrics
     }
   }
 
+  /**
+   * Fill metrics with the appropriate values.
+   *
+   * @param result   Updated metric instance
+   * @param mapState Metrics kept in state
+   * @param value    Current metrics acquired
+   * @param keys1    Input types
+   * @throws Exception Flink's exceptions
+   */
   private static void fillMap(Metrics result, MapState<String, Double> mapState, Metrics value, String[] keys1) throws Exception {
     double first = value.get(keys1[0]);
     double second = mapState.get(keys1[1]);

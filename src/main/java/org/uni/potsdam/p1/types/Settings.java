@@ -17,12 +17,13 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 /**
  * <p>
  * This class stores the basic information of a DataStreamJob and serves as a standard
- * for implementing new Flink-Queries. Define here the following parameters:
+ * for implementing new Flink-Queries. Define here the following global parameters:
  * </p>
  * <ol>
  *   <li>Amount of records to be produced: BATCH_SIZE</li>
  *   <li>Amount of events used for calculating running averages at the OPERATORS:
  *   CONTROL_BATCH_SIZE</li>
+ *   <li>Latency bound to be considered for the average processing time</li>
  *   <li>Function used to generate new records: EVENT_GENERATOR</li>
  *   <li>List containing all operators' information: OPERATORS</li>
  *   <li>Address of the kafka server if available: KAFKA_ADDRESS</li>
@@ -33,8 +34,16 @@ public abstract class Settings {
 
   public static final int CONTROL_BATCH_SIZE = 100;
   public static final int BATCH_SIZE = 10_000;
+  public static double LATENCY_BOUND = 15.15E-3;
   public static final GeneratorFunction<Long, Measurement> EVENT_GENERATOR = Measurement::new;
 
+  public String[] SOURCE_TYPES = new String[]{"0", "1", "2", "3"};
+  public String[] O1_OUTPUT_TYPES = new String[]{"11", "12"};
+  public String[] O2_OUTPUT_TYPES = new String[]{"21", "22"};
+  public String[] O3_INPUT_TYPES = new String[]{"11", "21"};
+  public String[] O4_INPUT_TYPES = new String[]{"12", "22"};
+  public String[] O3_OUTPUT_TYPES = new String[]{"1000"};
+  public String[] O4_OUTPUT_TYPES = new String[]{"2000"};
   public OperatorInfo[] OPERATORS = new OperatorInfo[]{
     new OperatorInfo().withName("o1")
       .withInputTypes("1", "2", "3", "0")

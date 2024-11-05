@@ -1,4 +1,4 @@
-package org.uni.potsdam.p1.actors;
+package org.uni.potsdam.p1.actors.enrichers;
 
 import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.api.common.state.MapState;
@@ -10,6 +10,17 @@ import org.uni.potsdam.p1.types.Metrics;
 
 import java.util.Map;
 
+/**
+ * This class analyses the input rates and the processing times of an operator together
+ * and decides if the operator is overloaded and if the coordinator needs to be activated.
+ * It also calculates the average processing time of an operator and determines if this
+ * time surpasses a given latency bound.
+ * If the operator's rates vary in at least 5% from one measurement to the other, or the
+ * average processing rate varies in at least 10% between measurements or if the average
+ * processing time or the total time processing time of an operator exceeds a given
+ * latency bound, then the analyser contacts the coordinator by sending it a job message.
+ * (empty Metrics with description: overloaded).
+ */
 public class SCAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Metrics> {
 
   MapState<String, Double> map1;
@@ -17,7 +28,7 @@ public class SCAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics,
   String[] lambdaKeys;
   String[] ptimes;
   String groupName;
-  public static double LATENCY_BOUND = 15.15E-6;
+  public double bound;
   double lastLambda = 0.;
   double lastPtime = 0.;
   OutputTag<String> sosOutput;
@@ -26,7 +37,7 @@ public class SCAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics,
 
   double lastAverage = 0.;
 
-  public SCAnalyser(String groupName, String[] lambdaKeys, String[] ptimes, OutputTag<String> sosOutput) {
+  public SCAnalyser(String groupName, String[] lambdaKeys, String[] ptimes, OutputTag<String> sosOutput, double bound) {
     this.lambdaKeys = lambdaKeys;
     this.ptimes = ptimes;
     this.groupName = groupName;
@@ -37,6 +48,7 @@ public class SCAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics,
         sheddingRates.put(ptimeKey + "_" + lambdaKey, 0.);
       }
     }
+    this.bound = bound;
   }
 
   @Override
@@ -45,7 +57,12 @@ public class SCAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics,
     map2 = getRuntimeContext().getMapState(new MapStateDescriptor<>("map2", String.class, Double.class));
   }
 
-  @Override
+  /*
+   * If both input rates and pattern processing times are available, then calculate the
+   * average processing rate p and the total processing time B.
+   * If the measures deviate significantly from their last values and if B or p surpass
+   * the latency bound, then activate the coordinator.
+   */
   public void processElement1(Metrics value, KeyedCoProcessFunction<Double, Metrics, Metrics, Metrics>.Context ctx, Collector<Metrics> out) throws Exception {
     if (map2.isEmpty()) {
       for (Map.Entry<String, Double> entry : value.entrySet()) {
@@ -67,12 +84,11 @@ public class SCAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics,
       double ratioLambda = Math.abs(1 - value.get("total") / (lastLambda == 0 ? 1 : lastLambda));
       double ratioPtime = Math.abs(1 - map2.get("total") / (lastPtime == 0 ? 1 : lastPtime));
       if (lastAverage != 0.) {
-        if ((calculatedP > LATENCY_BOUND || (ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND) || (isShedding && B < LATENCY_BOUND)) {
+        if ((calculatedP > bound || (ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > bound) || (isShedding && B < bound)) {
           long id = System.nanoTime();
           Metrics empty = new Metrics(value.name, "overloaded", 0);
           empty.id = id;
           out.collect(empty);
-//          ctx.output(sosOutput, groupName + " B: " + B + " p: " + calculatedP + " ratio: " + ratio + " batch: " + value.getMetric("batch") + " map: " + total + " mu: " + (calculatedP == 0 ? 0 : 1 / calculatedP) + " last: " + lastAverage);
         }
       }
       lastAverage = calculatedP;
@@ -81,6 +97,7 @@ public class SCAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics,
     }
   }
 
+  // Works analogous to processElement1
   @Override
   public void processElement2(Metrics value, KeyedCoProcessFunction<Double, Metrics, Metrics, Metrics>.Context ctx, Collector<Metrics> out) throws Exception {
     if (value.description.equals("shares")) {
@@ -97,31 +114,43 @@ public class SCAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics,
         map2.put(entry.getKey(), entry.getValue());
       }
     } else {
+
       double total = map1.get("total");
+
       double calculatedP = 0.;
       for (String key : lambdaKeys) {
         double weight = 0;
         for (String key2 : ptimes) {
           double share = (1 - sheddingRates.get(key2 + "_" + key));
+
           weight += share * value.get(key2);
+
         }
+
         calculatedP += (map1.get(key) / (total == 0 ? 1 : total)) * weight;
+
       }
       double B = 1 / ((1 / (calculatedP == 0 ? 1 : calculatedP)) - total);
       double ratio = Math.abs(1 - calculatedP / (lastAverage == 0 ? 1 : lastAverage));
+
       double ratioLambda = Math.abs(1 - map1.get("total") / (lastLambda == 0 ? 1 : lastLambda));
       double ratioPtime = Math.abs(1 - value.get("total") / (lastPtime == 0 ? 1 : lastPtime));
+
       if (lastAverage != 0.) {
-        if ((calculatedP > LATENCY_BOUND || (ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > LATENCY_BOUND) || (isShedding && B < LATENCY_BOUND)) {
+        if ((calculatedP > bound || (ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > bound) || (isShedding && B < bound)) {
           long id = System.nanoTime();
+
           Metrics empty = new Metrics(value.name, "overloaded", 0);
+
           empty.id = id;
           out.collect(empty);
 //          ctx.output(sosOutput, groupName + " B: " + B + " p: " + calculatedP + " ratio: " + ratio + " batch: " + value.getMetric("batch") + " map: " + total + " mu: " + (calculatedP == 0 ? 0 : 1 / calculatedP) + " last: " + lastAverage);
         }
       }
       lastAverage = calculatedP;
+
       lastPtime = value.get("total");
+
       lastLambda = total;
     }
   }

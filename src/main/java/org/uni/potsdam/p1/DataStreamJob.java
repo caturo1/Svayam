@@ -25,7 +25,12 @@ import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.util.OutputTag;
-import org.uni.potsdam.p1.actors.*;
+import org.uni.potsdam.p1.actors.enrichers.Coordinator;
+import org.uni.potsdam.p1.actors.enrichers.EventJoiner;
+import org.uni.potsdam.p1.actors.enrichers.SCAnalyser;
+import org.uni.potsdam.p1.actors.operators.BasicOperator;
+import org.uni.potsdam.p1.actors.operators.EventCounter;
+import org.uni.potsdam.p1.actors.operators.SinkOperator;
 import org.uni.potsdam.p1.types.Measurement;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.Settings;
@@ -85,13 +90,13 @@ public class DataStreamJob extends Settings {
 
 
     // use EventCounters to measure the output rates of the sources per second and to forward the events to the OPERATORS
-    SingleOutputStreamOperator<Measurement> counter1 = simpleConnect(source1, global).process(new EventCounter("o1", new String[]{"0", "1", "2", "3"}, toAnalyser1, toCoordinator, CONTROL_BATCH_SIZE)).name("Counter1");
-    SingleOutputStreamOperator<Measurement> counter2 = simpleConnect(source2, global).process(new EventCounter("o2", new String[]{"0", "1", "2", "3"}, toAnalyser2, toCoordinator, CONTROL_BATCH_SIZE)).name("Counter2");
+    SingleOutputStreamOperator<Measurement> counter1 = simpleConnect(source1, global).process(new EventCounter("o1", SOURCE_TYPES, toAnalyser1, toCoordinator, CONTROL_BATCH_SIZE)).name("Counter1");
+    SingleOutputStreamOperator<Measurement> counter2 = simpleConnect(source2, global).process(new EventCounter("o2", SOURCE_TYPES, toAnalyser2, toCoordinator, CONTROL_BATCH_SIZE)).name("Counter2");
 
 
     // set OPERATORS 1 and 2 and collect both their processing (mu) and their output rates (lambda) on side outputs
-    SingleOutputStreamOperator<Measurement> operator1 = simpleConnect(counter1, global).process(new BasicOperator("o1", new String[]{"0", "1", "2", "3"}, new String[]{"11", "12"}, toOperator4, toAnalyser1, toJoiner, toCoordinator, CONTROL_BATCH_SIZE)).name("Operator1");
-    SingleOutputStreamOperator<Measurement> operator2 = simpleConnect(counter2, global).process(new BasicOperator("o2", new String[]{"0", "1", "2", "3"}, new String[]{"21", "22"}, toOperator4, toAnalyser2, toJoiner, toCoordinator, CONTROL_BATCH_SIZE)).name("Operator2");
+    SingleOutputStreamOperator<Measurement> operator1 = simpleConnect(counter1, global).process(new BasicOperator("o1", SOURCE_TYPES, O1_OUTPUT_TYPES, toOperator4, toAnalyser1, toJoiner, toCoordinator, CONTROL_BATCH_SIZE)).name("Operator1");
+    SingleOutputStreamOperator<Measurement> operator2 = simpleConnect(counter2, global).process(new BasicOperator("o2", SOURCE_TYPES, O2_OUTPUT_TYPES, toOperator4, toAnalyser2, toJoiner, toCoordinator, CONTROL_BATCH_SIZE)).name("Operator2");
 
 
     // gather the output rates of both operator 1 and 2, join the output rates which are relevant to the different OPERATORS downstream and forward the information to them
@@ -100,30 +105,30 @@ public class DataStreamJob extends Settings {
 
 
     // set OPERATORS 3 and 4 and collect both their processing (mu) and their output rates (lambda) on side outputs
-    SingleOutputStreamOperator<Measurement> operator3 = operator1.union(operator2).keyBy(me -> 1).connect(global).process(new SinkOperator("o3", new String[]{"11", "21"}, new String[]{"1000"}, toAnalyser3, toCoordinator, CONTROL_BATCH_SIZE)).name("Operator3");
+    SingleOutputStreamOperator<Measurement> operator3 = operator1.union(operator2).keyBy(me -> 1).connect(global).process(new SinkOperator("o3", O3_INPUT_TYPES, O3_OUTPUT_TYPES, toAnalyser3, toCoordinator, CONTROL_BATCH_SIZE)).name("Operator3");
 
-    SingleOutputStreamOperator<Measurement> operator4 = operator1.getSideOutput(toOperator4).union(operator2.getSideOutput(toOperator4)).keyBy(me -> 1).connect(global).process(new SinkOperator("o4", new String[]{"12", "22"}, new String[]{"2000"}, toAnalyser4, toCoordinator, CONTROL_BATCH_SIZE)).name("Operator4");
+    SingleOutputStreamOperator<Measurement> operator4 = operator1.getSideOutput(toOperator4).union(operator2.getSideOutput(toOperator4)).keyBy(me -> 1).connect(global).process(new SinkOperator("o4", O4_INPUT_TYPES, O4_OUTPUT_TYPES, toAnalyser4, toCoordinator, CONTROL_BATCH_SIZE)).name("Operator4");
 
 
     // connect the stream of input rates with the stream of processing times for each operator, analyse their characteristics and contact the coordinator if necessary
     SingleOutputStreamOperator<Metrics> analyser1 = counter1.getSideOutput(toAnalyser1).keyBy(map -> map.get("batch"))
       .connect(operator1.getSideOutput(toAnalyser1).keyBy(map -> map.get("batch")))
-      .process(new SCAnalyser("o1", new String[]{"1", "2", "3", "0"}, new String[]{"11", "12"}, toKafka))
+      .process(new SCAnalyser("o1", SOURCE_TYPES, O1_OUTPUT_TYPES, toKafka, LATENCY_BOUND))
       .name("Analyser1");
 
     SingleOutputStreamOperator<Metrics> analyser2 = counter2.getSideOutput(toAnalyser2).keyBy(map -> map.get("batch"))
       .connect(operator2.getSideOutput(toAnalyser2).keyBy(map -> map.get("batch")))
-      .process(new SCAnalyser("o2", new String[]{"1", "2", "3", "0"}, new String[]{"21", "22"}, toKafka))
+      .process(new SCAnalyser("o2", SOURCE_TYPES, O2_OUTPUT_TYPES, toKafka, LATENCY_BOUND))
       .name("Analyser2");
 
     SingleOutputStreamOperator<Metrics> analyser3 = joined.keyBy(map -> map.get("batch"))
       .connect(operator3.getSideOutput(toAnalyser3).keyBy(map -> map.get("batch")))
-      .process(new SCAnalyser("o3", new String[]{"11", "21"}, new String[]{"1000"}, toKafka)).name("Analyser3");
+      .process(new SCAnalyser("o3", O3_INPUT_TYPES, O3_OUTPUT_TYPES, toKafka, LATENCY_BOUND)).name("Analyser3");
 
     SingleOutputStreamOperator<Metrics> analyser4 =
       joined.getSideOutput(toAnalyser4).keyBy(map -> map.get("batch"))
         .connect(operator4.getSideOutput(toAnalyser4).keyBy(map -> map.get("batch")))
-        .process(new SCAnalyser("o4", new String[]{"12", "22"}, new String[]{"2000"}, toKafka)).name("Analyser4");
+        .process(new SCAnalyser("o4", O4_INPUT_TYPES, O4_OUTPUT_TYPES, toKafka, LATENCY_BOUND)).name("Analyser4");
 
 
     // gather the outputs of all actors relevant to the coordinator
@@ -140,7 +145,7 @@ public class DataStreamJob extends Settings {
 
     // execute coordinator
     SingleOutputStreamOperator<String> coordinatorOutput = streamToCoordinator
-      .keyBy(metric -> metric.id).process(new Coordinator(toKafka, OPERATORS)).name("Coordinator");
+      .keyBy(metric -> metric.id).process(new Coordinator(toKafka, LATENCY_BOUND, OPERATORS)).name("Coordinator");
 
     coordinatorOutput.sinkTo(control);
 

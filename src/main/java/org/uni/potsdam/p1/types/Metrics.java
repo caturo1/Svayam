@@ -1,17 +1,28 @@
 package org.uni.potsdam.p1.types;
 
+import org.uni.potsdam.p1.actors.measurers.Measurer;
+
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+/**
+ * This classed is designed to store the information of a specific metric of an operator.
+ * see {@link Measurer} and {@link OperatorInfo} for more information.
+ */
 public class Metrics implements Serializable {
   public String name;
   public String description;
   public HashMap<String, Double> map;
   public long id;
 
+  /**
+   * @param name        Name of the corresponding operator
+   * @param description Metric type see: {@link OperatorInfo}
+   * @param capacity    Number of event types to be considered
+   */
   public Metrics(String name, String description, int capacity) {
     this.name = name;
     this.description = description;
@@ -44,7 +55,7 @@ public class Metrics implements Serializable {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
     Metrics metrics = (Metrics) o;
-    return name == metrics.name && description == metrics.description && Objects.equals(map, metrics.map);
+    return name.equals(metrics.name) && description.equals(metrics.description) && Objects.equals(map, metrics.map);
   }
 
   @Override

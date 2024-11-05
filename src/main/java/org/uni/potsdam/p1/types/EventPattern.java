@@ -27,9 +27,22 @@ public class EventPattern implements Serializable {
   public String[] downstreamOperators;
   boolean wasVisited;
 
+  /**
+   * Necessary empty constructor for Flink-serialization
+   */
   public EventPattern() {
   }
 
+  /**
+   * Alternative way to create a new EventPattern instance. Determining the type of a
+   * pattern follows the same rules as described
+   * in the methods: {@link EventPattern#AND(String, String, String...)},
+   * {@link EventPattern#OR(String, String, String)} and {@link EventPattern#SEQ(String, String, String)}
+   *
+   * @param name                The name/symbol of the complex event type produced by the detection of this pattern
+   * @param type                The type of pattern
+   * @param downstreamOperators The names of the downstream operators
+   */
   private EventPattern(String name, String type, String... downstreamOperators) {
     this.name = name;
     this.type = type;
@@ -49,10 +62,12 @@ public class EventPattern implements Serializable {
     return Objects.hash(name, type);
   }
 
+  // TODO to be improved
   private void visit() {
     wasVisited = true;
   }
 
+  // TODO to be improved
   private void clear() {
     wasVisited = false;
   }
