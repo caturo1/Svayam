@@ -3,15 +3,106 @@ Test repository for the CEP-Flink-Project of University of Potsdam
 To package your job for submission to Flink, use: 'gradle clean && gradle shadowJar'.
 Afterwards, you'll find the jar to use in the 'build/libs' folder.
 
-To activate the docker network use:
-'docker compose -f zk-single-kafka-single-flink.yml up -d' in this projects directory
-
-This will create a network with containers running: Kafka/Zookeeper, Flink Taskmanager
-and Flink Jobmanager. The kafka topics necessary for the application are created
-automatically.
-
-To deactivate the network use:
-'docker compose -f zk-single-kafka-single-flink.yml down -v' in this projects directory
-
 You can configure the global variables of the application in the Settings.java class.
 The Flink-query itself should be written in the DataStreamJob.java class
+
+Tutorial - Running the job on multiple hosts:
+
+1) Activate docker engines on different hosts (Linux - tested on Ubuntu 24.04.1 LTS)
+    sudo systemctl start docker
+
+2) Open communication ports, so that the different hosts can communicate across the
+overlay-swarm-network:
+   ufw allow 22/tcp (optional for remote access with ssh)
+   ufw allow 2376/tcp
+   ufw allow 2377/tcp
+   ufw allow 7946/tcp
+   ufw allow 7946/udp
+   ufw allow 4789/udp
+   ufw reloads
+   ufw enable
+
+3) Choose one host to be a manager and run:
+    docker swarm init --advertise-addr <HOST-IP-ADDR>
+
+3.1) The command above will generate an output of the sort:
+
+    Swarm initialized: current node (<NODE-ID>) is now a manager.
+
+    To add a worker to this swarm, run the following command:
+
+        docker swarm join --token <ACCESS-TOKEN> <HOST'S-IP>:<ACCESS-PORT>
+
+    To add a manager to this swarm, run 'docker swarm join-token manager' and follow the
+    instructions.
+
+4) In all other nodes (the workers) execute the command produced in step 3.1
+
+5) Check if all hosts are connected with:
+
+    docker node ls
+
+5.1) You want your nodes to be:
+
+    - Ready: node is actively participating in the swarm
+    - Active: node can be assigned tasks to
+
+6) In the manager node deploy the tasks to the swarm by using the flink-swarm.yml file:
+
+   docker stack deploy --compose-file flink-swarm.yml flink
+
+7) You can have an overview of the services in the stack (group of services) using:
+
+    # Show all services of stack flink
+    docker stack ps flink
+
+    or
+
+    # Show all services on the swarm
+    docker service ls
+
+   You can check the status of individual services using:
+
+    docker service ps <SERVICE-NAME>
+
+8) If you want to scale up a service use:
+
+    docker service scale <SERVICE-NAME> = <NUMBER-OF-REPLICAS>
+
+9) Once the deployment is done, determine which host is executing the flink-jobmanager:
+
+    docker service ps flink_jobmanager
+
+   and connect to it using its ip-address and the exposed port 8081.
+   You can either connect to the flink-dashboard on your browser using:
+   <HOST-IP-ADDRESS>:8081
+
+   Or you can use the Big Data Tools plugin from IntelliJ, there just add a new
+   Flink-connection and use: <HOST-IP-ADDRESS>:8081 in the url.
+
+   Similarly you can connect IntelliJ with the host executing kafka using
+   <HOST-IP-ADDRESS>:9094
+
+10) Deploy the job's .jar to the jobmanager either through IntelliJ or in the Web-dashboard
+
+11) Cancel the job when you are done with it (either in the Web-dashboard or IntelliJ -
+at Running Jobs you will find a Cancel Job option)
+
+12) When you are done, remove the service-stack from the swarm using:
+
+    docker stack rm flink
+
+13) In each worker-host leave the swarm using:
+
+    docker swarm leave
+
+14) Finally leave the swarm from the starting manager node to end it
+
+    docker swarm leave --force
+
+
+Running the job on a single host:
+
+The process above will also work on a single host. If we skip step 4 all services will be
+assigned to the initiating manager node. In this case you can access all services using
+localhost as the address.
