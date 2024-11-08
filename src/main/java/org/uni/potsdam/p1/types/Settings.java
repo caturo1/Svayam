@@ -34,7 +34,7 @@ public abstract class Settings {
 
   public static final int CONTROL_BATCH_SIZE = 100;
   public static final int BATCH_SIZE = 10_000;
-  public static double LATENCY_BOUND = 15.15E-3;
+  public static double LATENCY_BOUND = 15.15E-6;
   public static final GeneratorFunction<Long, Measurement> EVENT_GENERATOR = Measurement::new;
 
   public String[] SOURCE_TYPES = new String[]{"0", "1", "2", "3"};
@@ -72,7 +72,7 @@ public abstract class Settings {
       ).toSink()
   };
 
-  public static final String KAFKA_ADDRESS = "kafka1:19092";
+  public static final String KAFKA_ADDRESS = "kafka:9092";
   /*
     Set Kafka channels:
       -> globalChannelIn:   reads from kafka topic (global) containing the sos messages and
