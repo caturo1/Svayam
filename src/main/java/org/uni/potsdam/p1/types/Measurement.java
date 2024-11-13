@@ -10,7 +10,6 @@ import java.util.Objects;
 public class Measurement implements Serializable {
   public final int type;
   public final long eventTime;
-  public int source;
   public String message;
 
   /**
@@ -54,7 +53,6 @@ public class Measurement implements Serializable {
     return "Measurement{" +
       " type=" + type +
       ", eventTime=" + eventTime +
-      ", source=" + source +
       "\nmessage=" + message +
       '}';
   }

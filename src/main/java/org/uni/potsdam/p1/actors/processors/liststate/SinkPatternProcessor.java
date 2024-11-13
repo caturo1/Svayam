@@ -1,4 +1,4 @@
-package org.uni.potsdam.p1.actors.processors;
+package org.uni.potsdam.p1.actors.processors.liststate;
 
 import org.apache.flink.api.common.state.ListState;
 import org.uni.potsdam.p1.actors.measurers.Measurer;

@@ -1,4 +1,4 @@
-package org.uni.potsdam.p1.actors.processors;
+package org.uni.potsdam.p1.actors.processors.liststate;
 
 import org.uni.potsdam.p1.actors.measurers.Measurer;
 import org.uni.potsdam.p1.types.Measurement;
