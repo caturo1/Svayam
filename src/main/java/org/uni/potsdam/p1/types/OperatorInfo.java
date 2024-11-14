@@ -40,6 +40,10 @@ public class OperatorInfo implements Serializable {
     }
   }
 
+  public String[] getOutputTypes() {
+    return Arrays.stream(patterns).map(EventPattern::getName).toArray(String[]::new);
+  }
+
   /**
    * Constructs an OperatorInfo instance with the desired parameters.
    */

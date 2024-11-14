@@ -12,6 +12,9 @@ import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.ConnectedStreams;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.uni.potsdam.p1.types.outputTags.MeasurementOutput;
+import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
+import org.uni.potsdam.p1.types.outputTags.StringOutput;
 
 
 /**
@@ -32,10 +35,23 @@ import org.apache.flink.streaming.api.datastream.DataStream;
  */
 public abstract class Settings {
 
+  //  public static final double RECORDS_PER_SECOND = 100.23;//2297.0158023446834;
+  public static final int RECORDS_PER_SECOND = 100;
   public static final int CONTROL_BATCH_SIZE = 100;
   public static final int BATCH_SIZE = 10_000;
-  public static double LATENCY_BOUND = 15.15E-6;
+  //  public static final int BATCH_SIZE = Integer.MAX_VALUE;
+  public static double LATENCY_BOUND = 11.5E-3;
   public static final GeneratorFunction<Long, Measurement> EVENT_GENERATOR = Measurement::new;
+
+  // define output tags
+  public final MetricsOutput toCoordinator = new MetricsOutput("out_to_coordinator");
+  public final StringOutput toKafka = new StringOutput("out_to_kafka");
+  public final MetricsOutput toAnalyser1 = new MetricsOutput("out_to_analyser1");
+  public final MetricsOutput toAnalyser2 = new MetricsOutput("out_to_analyser2");
+  public final MetricsOutput toAnalyser3 = new MetricsOutput("out_to_analyser3");
+  public final MetricsOutput toAnalyser4 = new MetricsOutput("out_to_analyser4");
+  public final MetricsOutput toJoiner = new MetricsOutput("out_to_joiner");
+  public final MeasurementOutput toOperator4 = new MeasurementOutput("out_to_operator4");
 
   public String[] SOURCE_TYPES = new String[]{"0", "1", "2", "3"};
   public String[] O1_OUTPUT_TYPES = new String[]{"11", "12"};
@@ -44,31 +60,32 @@ public abstract class Settings {
   public String[] O4_INPUT_TYPES = new String[]{"12", "22"};
   public String[] O3_OUTPUT_TYPES = new String[]{"1000"};
   public String[] O4_OUTPUT_TYPES = new String[]{"2000"};
+
   public OperatorInfo[] OPERATORS = new OperatorInfo[]{
     new OperatorInfo().withName("o1")
       .withInputTypes("1", "2", "3", "0")
       .withPatterns(
-      EventPattern.SEQ("11", "0|2:1|1", "o3"),
-      EventPattern.AND("12", "1:2:3", "o4")
+      EventPattern.SEQ("11", "0|2:1|1", 10, "o3"),
+      EventPattern.AND("12", "1:2:3", 10, "o4")
     ),
 
     new OperatorInfo().withName("o2")
       .withInputTypes("1", "2", "3", "0")
       .withPatterns(
-      EventPattern.SEQ("21", "0|2:1|1", "o3"),
-      EventPattern.AND("22", "1:2:3", "o4")
+      EventPattern.SEQ("21", "0|2:1|1", 10, "o3"),
+      EventPattern.AND("22", "1:2:3", 10, "o4")
     ),
 
     new OperatorInfo().withName("o3")
       .withInputTypes("11", "21")
       .withPatterns(
-        EventPattern.AND("1000", "11:21", (String[]) null)
+        EventPattern.AND("1000", "11:21", 10, (String[]) null)
       ).toSink(),
 
     new OperatorInfo().withName("o4")
       .withInputTypes("12", "22")
       .withPatterns(
-        EventPattern.AND("2000", "12:22", (String[]) null)
+        EventPattern.AND("2000", "12:22", 10, (String[]) null)
       ).toSink()
   };
 
@@ -83,7 +100,7 @@ public abstract class Settings {
   public KafkaSource<String> globalChannelIn = KafkaSource.<String>builder()
     .setBootstrapServers(KAFKA_ADDRESS)
     .setTopics("global")
-    .setStartingOffsets(OffsetsInitializer.earliest())
+    .setStartingOffsets(OffsetsInitializer.latest())
     .setValueOnlyDeserializer(new SimpleStringSchema())
     .build();
 
@@ -115,7 +132,7 @@ public abstract class Settings {
    * @param recordsPerSecond Maximum amount of records to be produced per second
    * @return A Flink DataGeneratorSource with the specified parameters.
    */
-  public static DataGeneratorSource<Measurement> createMeasuremetSource(int recordsPerSecond) {
+  public static DataGeneratorSource<Measurement> createMeasurementSource(int recordsPerSecond) {
     return new DataGeneratorSource<>(
       EVENT_GENERATOR,
       BATCH_SIZE,

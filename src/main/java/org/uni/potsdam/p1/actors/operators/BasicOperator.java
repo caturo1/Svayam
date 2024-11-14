@@ -9,9 +9,9 @@ import org.apache.flink.util.OutputTag;
 import org.uni.potsdam.p1.actors.measurers.AddingMeasurer;
 import org.uni.potsdam.p1.actors.measurers.CountingMeasurer;
 import org.uni.potsdam.p1.actors.measurers.Measurer;
-import org.uni.potsdam.p1.actors.processors.AndPatternProcessor;
-import org.uni.potsdam.p1.actors.processors.PatternProcessor;
-import org.uni.potsdam.p1.actors.processors.SeqPatternProcessor;
+import org.uni.potsdam.p1.actors.processors.liststate.AndPatternProcessor;
+import org.uni.potsdam.p1.actors.processors.liststate.PatternProcessor;
+import org.uni.potsdam.p1.actors.processors.liststate.SeqPatternProcessor;
 import org.uni.potsdam.p1.types.Measurement;
 import org.uni.potsdam.p1.types.Metrics;
 

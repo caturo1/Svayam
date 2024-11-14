@@ -8,7 +8,7 @@ import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 import org.uni.potsdam.p1.actors.measurers.AddingMeasurer;
 import org.uni.potsdam.p1.actors.measurers.CountingMeasurer;
-import org.uni.potsdam.p1.actors.processors.SinkPatternProcessor;
+import org.uni.potsdam.p1.actors.processors.liststate.SinkPatternProcessor;
 import org.uni.potsdam.p1.types.Measurement;
 import org.uni.potsdam.p1.types.Metrics;
 
