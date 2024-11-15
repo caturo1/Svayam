@@ -36,12 +36,12 @@ import org.uni.potsdam.p1.types.outputTags.StringOutput;
 public abstract class Settings {
 
   //  public static final double RECORDS_PER_SECOND = 100.23;//2297.0158023446834;
-  public static final int RECORDS_PER_SECOND = 100;
-  public static final int CONTROL_BATCH_SIZE = 100;
-  public static final int BATCH_SIZE = 10_000;
-  //  public static final int BATCH_SIZE = Integer.MAX_VALUE;
-  public static double LATENCY_BOUND = 11.5E-3;
-  public static final GeneratorFunction<Long, Measurement> EVENT_GENERATOR = Measurement::new;
+  public static final int RECORDS_PER_SECOND = 2297;
+  public static final int CONTROL_BATCH_SIZE = 5000;
+  //  public static final int BATCH_SIZE = 10_000;
+  public static final int BATCH_SIZE = 1_000_000;
+  public static double LATENCY_BOUND = 0.01;
+  public static final GeneratorFunction<Long, Measurement> EVENT_GENERATOR = index -> new Measurement();
 
   // define output tags
   public final MetricsOutput toCoordinator = new MetricsOutput("out_to_coordinator");

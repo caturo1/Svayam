@@ -10,7 +10,7 @@ import java.util.Objects;
 public class Measurement implements Serializable {
   public final int type;
   public final long eventTime;
-  public String message;
+//  public String message;
 
   /**
    * Initialises a new instance of this class with a random event type [0-3] and with a
@@ -22,13 +22,14 @@ public class Measurement implements Serializable {
   }
 
   /**
-   * Constructor for debugging
+   * Constructs a new event of a given type
    *
-   * @param index Specific index value for a measurement (for debugging)
+   * @param type Type of the new event
    */
-  public Measurement(long index) {
-    this();
-    message = String.valueOf(index);
+  public Measurement(int type) {
+    this.type = type;
+    eventTime = System.currentTimeMillis();
+//    message = String.valueOf(index);
   }
 
   /**
@@ -36,7 +37,7 @@ public class Measurement implements Serializable {
    */
   public Measurement(int id, String message, int tab) {
     type = id;
-    this.message = "\t".repeat(tab) + message;
+//    this.message = "\t".repeat(tab) + message;
     eventTime = System.currentTimeMillis();
   }
 
@@ -53,7 +54,7 @@ public class Measurement implements Serializable {
     return "Measurement{" +
       " type=" + type +
       ", eventTime=" + eventTime +
-      "\nmessage=" + message +
+//      "\nmessage=" + message +
       '}';
   }
 

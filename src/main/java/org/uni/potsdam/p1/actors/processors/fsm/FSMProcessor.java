@@ -53,7 +53,7 @@ public abstract class FSMProcessor implements Serializable {
   public FSMProcessor(int patternType, int timeWindow, int... parameters) {
     this.parameters = parameters;
     this.patternType = patternType;
-    currentFSMs = new ArrayList<>();
+    currentFSMs = new ArrayList<>(5000);
     this.timeWindow = timeWindow;
   }
 
@@ -76,7 +76,7 @@ public abstract class FSMProcessor implements Serializable {
    * @return A new event in case of a match or null if no match was possible.
    */
   public Measurement processElement(Measurement value) {
-    List<FSM> candidates = new ArrayList<>();
+    List<FSM> candidates = new ArrayList<>(100);
     List<FSM> toDelete = new ArrayList<>();
     for (FSM current : currentFSMs) {
       if (applyTimeBoundary(current, value)) {
@@ -85,8 +85,8 @@ public abstract class FSMProcessor implements Serializable {
       }
       if (current.advancesWith(value.type)) {
         if (current.finishesInOne()) {
-          StringBuilder output = new StringBuilder();
-          current.participants.forEach(output::append);
+//          StringBuilder output = new StringBuilder();
+//          current.participants.forEach(output::append);
           currentFSMs.removeIf(fsm -> {
             if (fsm == current) {
               return false;
@@ -95,8 +95,9 @@ public abstract class FSMProcessor implements Serializable {
           });
           currentFSMs.remove(current);
           currentFSMs.remove(toDelete);
-          output.append(value);
-          return new Measurement(patternType, output.toString(), 0);
+//          output.append(value);
+//          return new Measurement(patternType, output.toString(), 0);
+          return new Measurement(patternType);
         }
         candidates.add(getNextFSM(current, value));
       }
