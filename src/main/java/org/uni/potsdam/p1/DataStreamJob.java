@@ -93,7 +93,6 @@ public class DataStreamJob extends Settings {
     SingleOutputStreamOperator<Metrics> joined = operator1.getSideOutput(toJoiner).keyBy(map -> map.get("batch")).connect(operator2.getSideOutput(toJoiner).keyBy(map -> map.get("batch"))).process(
       new EventJoiner(new String[]{"11", "21", "12", "22"}, new String[]{"21", "11", "22", "12"}, toAnalyser4)).name("Joined");
 
-
     // set OPERATORS 3 and 4 and collect both their processing (mu) and their output rates (lambda) on side outputs
     SingleOutputStreamOperator<Measurement> operator3 = simpleConnect(operator1.union(operator2), global).process(
       new FSMOperator(OPERATORS[2], CONTROL_BATCH_SIZE)
@@ -107,6 +106,7 @@ public class DataStreamJob extends Settings {
         .setMetricsOutput("sos", toCoordinator)
     ).name("Operator4");
 
+    operator3.union(operator4).map(Measurement::toJson).sinkTo(control);
 
     // connect the stream of input rates with the stream of processing times for each operator, analyse their characteristics and contact the coordinator if necessary
     SingleOutputStreamOperator<Metrics> analyser1 = counter1.getSideOutput(toAnalyser1).keyBy(map -> map.get("batch"))
@@ -143,12 +143,9 @@ public class DataStreamJob extends Settings {
       .union(operator3.getSideOutput(toCoordinator))
       .union(operator4.getSideOutput(toCoordinator));
 
-
     // execute coordinator
     SingleOutputStreamOperator<String> coordinatorOutput = streamToCoordinator
       .keyBy(metric -> metric.id).process(new Coordinator(toKafka, LATENCY_BOUND, OPERATORS)).name("Coordinator");
-
-    coordinatorOutput.sinkTo(control);
 
     // store shedding rates in kafka
     coordinatorOutput.getSideOutput(toKafka).sinkTo(globalChannelOut);

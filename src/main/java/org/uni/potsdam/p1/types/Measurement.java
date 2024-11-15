@@ -58,6 +58,10 @@ public class Measurement implements Serializable {
       '}';
   }
 
+  public String toJson() {
+    return "{ \"type\": " + type + ", \"time\": " + eventTime + " }";
+  }
+
   /**
    * Returns the type of this event as a {@link String}: for usage with associative arrays
    *
