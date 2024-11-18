@@ -11,6 +11,7 @@ import java.util.Optional;
  * This class represents the different pattern processors used by operators for the
  * detection of complex events.
  */
+@Deprecated
 public abstract class PatternProcessor {
   Measurement value;
   String outputType;

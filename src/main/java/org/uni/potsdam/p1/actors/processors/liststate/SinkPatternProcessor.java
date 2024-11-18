@@ -14,6 +14,7 @@ import java.util.Optional;
  *
  * @see AndPatternProcessor for more information
  */
+@Deprecated
 public class SinkPatternProcessor extends PatternProcessor {
 
   ListState<Measurement> listState;

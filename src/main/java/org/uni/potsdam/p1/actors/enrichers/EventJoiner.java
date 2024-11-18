@@ -15,6 +15,7 @@ import java.util.Map;
  * have multiple patterns that are used exclusively in many different operators. It gathers
  * this information and forward it to the respective operators' analysers.
  */
+@Deprecated
 public class EventJoiner extends KeyedCoProcessFunction<Double, Metrics, Metrics, Metrics> {
   MapState<String, Double> mapState;
   String[] keys;

@@ -27,6 +27,7 @@ import java.util.Optional;
  * will discard any events that are 10 seconds older than the current event.
  * </p>
  */
+@Deprecated
 public class AndPatternProcessor extends PatternProcessor {
 
   ListState<Measurement> listState;

@@ -26,6 +26,7 @@ import java.util.Optional;
  * older than the current event.
  * </p>
  */
+@Deprecated
 public class SeqPatternProcessor extends PatternProcessor {
 
   ListState<Measurement> listState;

@@ -21,6 +21,7 @@ import java.util.Optional;
  * work similar to those of {@link BasicOperator}. Implements a simple AND pattern with
  * the events it receives from two different operators without time constraints.
  */
+@Deprecated
 public class SinkOperator extends KeyedCoProcessFunction<Long, Measurement, String, Measurement> {
 
   // define outputTags for the side-outputs

@@ -38,6 +38,7 @@ import java.util.Optional;
  * average processing time of each pattern.
  * </p>
  */
+@Deprecated
 public class BasicOperator extends KeyedCoProcessFunction<Long, Measurement, String, Measurement> {
 
   // define outputTags for the side-outputs
