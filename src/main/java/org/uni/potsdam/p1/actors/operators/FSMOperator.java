@@ -76,7 +76,7 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
 
     // gather basic information
     String groupName = operator.name;
-    String[] outputTypes = operator.getOutputTypes();
+    String[] outputTypes = operator.outputTypes;
     String[] inputTypes = operator.inputTypes;
     int batchSize = operator.controlBatchSize;
 
@@ -209,7 +209,7 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
     }
   }
 
-  public void updateAndForward(Measurer measurer, MetricsOutput metricsOutput, Context ctx) {
+  public void updateAndForward(Measurer<?> measurer, MetricsOutput metricsOutput, Context ctx) {
     Metrics currentMetrics = measurer.getNewestAverages();
     if (metricsOutput != null) {
       ctx.output(metricsOutput, currentMetrics);

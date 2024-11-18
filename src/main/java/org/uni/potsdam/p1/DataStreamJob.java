@@ -24,8 +24,8 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.uni.potsdam.p1.actors.enrichers.Analyser;
 import org.uni.potsdam.p1.actors.enrichers.Coordinator;
-import org.uni.potsdam.p1.actors.enrichers.SCAnalyser;
 import org.uni.potsdam.p1.actors.operators.FSMOperator;
 import org.uni.potsdam.p1.actors.operators.JoinCounter;
 import org.uni.potsdam.p1.actors.operators.SinkLogger;
@@ -104,8 +104,6 @@ public class DataStreamJob extends Settings {
       .name("Operator2");
 
     // gather the output rates of both operator 1 and 2, join the output rates which are relevant to the different OPERATORS downstream and forward the information to them
-//    SingleOutputStreamOperator<Metrics> joined = operator1.getSideOutput(toJoiner).keyBy(map -> map.get("batch")).connect(operator2.getSideOutput(toJoiner).keyBy(map -> map.get("batch"))).process(
-//      new EventJoiner(new String[]{"11", "21", "12", "22"}, new String[]{"21", "11", "22", "12"}, toAnalyser4)).name("Joined");
     SingleOutputStreamOperator<Measurement> counter3 = operator1.union(operator2)
       .process(new JoinCounter(OPERATORS[2])
         .setMetricsOutput("lambdaIn", toAnalyser3))
@@ -132,32 +130,37 @@ public class DataStreamJob extends Settings {
     operator3.union(operator4).flatMap(new SinkLogger());
 
     // connect the stream of input rates with the stream of processing times for each operator, analyse their characteristics and contact the coordinator if necessary
-    SingleOutputStreamOperator<Metrics> analyser1 = counter1.getSideOutput(toAnalyser1).keyBy(map -> map.get("batch"))
-      .connect(operator1.getSideOutput(toAnalyser1).keyBy(map -> map.get("batch")))
-      .process(new SCAnalyser("o1", SOURCE_TYPES, O1_OUTPUT_TYPES, toKafka, LATENCY_BOUND))
+    SingleOutputStreamOperator<Metrics> analyser1 =
+      counter1.getSideOutput(toAnalyser1)
+        .union(operator1.getSideOutput(toAnalyser1))
+        .keyBy(map -> map.get("batch"))
+        .process(new Analyser(OPERATORS[0]))
 //      .slotSharingGroup("an")
-      .name("Analyser1");
+        .name("Analyser1");
 
-    SingleOutputStreamOperator<Metrics> analyser2 = counter2.getSideOutput(toAnalyser2)
-      .keyBy(map -> map.get("batch"))
-      .connect(operator2.getSideOutput(toAnalyser2).keyBy(map -> map.get("batch")))
-      .process(new SCAnalyser("o2", SOURCE_TYPES, O2_OUTPUT_TYPES, toKafka, LATENCY_BOUND))
+    SingleOutputStreamOperator<Metrics> analyser2 =
+      counter2.getSideOutput(toAnalyser2)
+        .union(operator2.getSideOutput(toAnalyser2))
+        .keyBy(map -> map.get("batch"))
+        .process(new Analyser(OPERATORS[1]))
 //      .slotSharingGroup("an")
-      .name("Analyser2");
+        .name("Analyser2");
 
-    SingleOutputStreamOperator<Metrics> analyser3 = counter3.getSideOutput(toAnalyser3)
-      .keyBy(map -> map.get("batch"))
-      .connect(operator3.getSideOutput(toAnalyser3).keyBy(map -> map.get("batch")))
-      .process(new SCAnalyser("o3", O3_INPUT_TYPES, O3_OUTPUT_TYPES, toKafka, LATENCY_BOUND))
+    SingleOutputStreamOperator<Metrics> analyser3 =
+      counter3.getSideOutput(toAnalyser3)
+        .union(operator3.getSideOutput(toAnalyser3))
+        .keyBy(map -> map.get("batch"))
+        .process(new Analyser(OPERATORS[2]))
 //      .slotSharingGroup("an")
-      .name("Analyser3");
+        .name("Analyser3");
 
-    SingleOutputStreamOperator<Metrics> analyser4 = counter4.getSideOutput(toAnalyser4)
-      .keyBy(map -> map.get("batch"))
-      .connect(operator4.getSideOutput(toAnalyser4).keyBy(map -> map.get("batch")))
-      .process(new SCAnalyser("o4", O4_INPUT_TYPES, O4_OUTPUT_TYPES, toKafka, LATENCY_BOUND))
+    SingleOutputStreamOperator<Metrics> analyser4 =
+      counter4.getSideOutput(toAnalyser4)
+        .union(operator4.getSideOutput(toAnalyser4))
+        .keyBy(map -> map.get("batch"))
+        .process(new Analyser(OPERATORS[3]))
 //      .slotSharingGroup("an")
-      .name("Analyser4");
+        .name("Analyser4");
 
     // gather the outputs of all actors relevant to the coordinator
     DataStream<Metrics> streamToCoordinator = analyser1.union(analyser2)

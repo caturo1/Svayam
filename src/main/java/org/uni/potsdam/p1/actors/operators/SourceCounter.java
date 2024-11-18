@@ -21,7 +21,9 @@ import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
  */
 public class SourceCounter extends KeyedCoProcessFunction<Long, Measurement, String, Measurement> {
 
+  // define logger for data analytics
   private final Logger sourceLog = LoggerFactory.getLogger("sourceLog");
+
   // define outputTags for the side-outputs
   MetricsOutput inputRates;
   MetricsOutput sosOutput;

@@ -5,22 +5,12 @@ import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.streaming.api.functions.co.KeyedCoProcessFunction;
 import org.apache.flink.util.Collector;
-import org.apache.flink.util.OutputTag;
 import org.uni.potsdam.p1.types.Metrics;
+import org.uni.potsdam.p1.types.outputTags.StringOutput;
 
 import java.util.Map;
 
-/**
- * This class analyses the input rates and the processing times of an operator together
- * and decides if the operator is overloaded and if the coordinator needs to be activated.
- * It also calculates the average processing time of an operator and determines if this
- * time surpasses a given latency bound.
- * If the operator's rates vary in at least 5% from one measurement to the other, or the
- * average processing rate varies in at least 10% between measurements or if the average
- * processing time or the total time processing time of an operator exceeds a given
- * latency bound, then the analyser contacts the coordinator by sending it a job message.
- * (empty Metrics with description: overloaded).
- */
+@Deprecated
 public class SCAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics, Metrics> {
 
   MapState<String, Double> map1;
@@ -31,13 +21,13 @@ public class SCAnalyser extends KeyedCoProcessFunction<Double, Metrics, Metrics,
   public double bound;
   double lastLambda = 0.;
   double lastPtime = 0.;
-  OutputTag<String> sosOutput;
+  StringOutput sosOutput;
   boolean isShedding = false;
   Metrics sheddingRates;
 
   double lastAverage = 0.;
 
-  public SCAnalyser(String groupName, String[] lambdaKeys, String[] ptimes, OutputTag<String> sosOutput, double bound) {
+  public SCAnalyser(String groupName, String[] lambdaKeys, String[] ptimes, StringOutput sosOutput, double bound) {
     this.lambdaKeys = lambdaKeys;
     this.ptimes = ptimes;
     this.groupName = groupName;

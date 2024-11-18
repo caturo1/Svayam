@@ -23,6 +23,7 @@ import java.util.Objects;
  */
 public class OperatorInfo implements Serializable {
   public String[] inputTypes;
+  public String[] outputTypes;
   public EventPattern[] patterns;
   public boolean isOverloaded = false;
   public boolean isSinkOperator = false;
@@ -30,6 +31,7 @@ public class OperatorInfo implements Serializable {
   public HashMap<String, Integer> indexer = new HashMap<>(4);
   public Metrics[] metrics = new Metrics[4];
   public int controlBatchSize;
+  public double latencyBound;
 
   /**
    * Constructs an empty {@link OperatorInfo} instance
@@ -42,19 +44,21 @@ public class OperatorInfo implements Serializable {
   }
 
   public String[] getOutputTypes() {
-    return Arrays.stream(patterns).map(EventPattern::getName).toArray(String[]::new);
+    return outputTypes;
   }
 
   /**
    * Constructs an OperatorInfo instance with the desired parameters.
    */
-  public OperatorInfo(String name, String[] inputTypes, int controlBatchSize, EventPattern[] patterns, boolean isSinkOperator) {
+  public OperatorInfo(String name, String[] inputTypes, int controlBatchSize, double latencyBound, EventPattern[] patterns, boolean isSinkOperator) {
     this();
     this.inputTypes = inputTypes;
     this.patterns = patterns;
     this.isSinkOperator = isSinkOperator;
     this.name = name;
     this.controlBatchSize = controlBatchSize;
+    this.latencyBound = latencyBound;
+    this.outputTypes = Arrays.stream(patterns).map(EventPattern::getName).toArray(String[]::new);
   }
 
   @Override
@@ -169,6 +173,18 @@ public class OperatorInfo implements Serializable {
   }
 
   /**
+   * Sets the latency bound for processing events in this operator
+   *
+   * @param latencyBound Maximum amount of seconds that a process should take to be
+   *                     processed in this operator.
+   * @return Reference to the given OperatorInfo-object
+   */
+  public OperatorInfo withLatencyBound(double latencyBound) {
+    this.latencyBound = latencyBound;
+    return this;
+  }
+
+  /**
    * Sets the input types of an OperatorInfo object to the specified value.
    *
    * @param types the event types represented as {@link String}
@@ -187,6 +203,7 @@ public class OperatorInfo implements Serializable {
    */
   public OperatorInfo withPatterns(EventPattern... patterns) {
     this.patterns = patterns;
+    this.outputTypes = Arrays.stream(patterns).map(EventPattern::getName).toArray(String[]::new);
     return this;
   }
 

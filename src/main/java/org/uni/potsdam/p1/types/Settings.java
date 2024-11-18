@@ -35,10 +35,11 @@ import org.uni.potsdam.p1.types.outputTags.StringOutput;
  */
 public abstract class Settings {
 
-  public static final int RECORDS_PER_SECOND = 2297;
-  public static final int CONTROL_BATCH_SIZE = 5000;
-  public static final int BATCH_SIZE = 1_000_000;
-  public static double LATENCY_BOUND = 0.001;
+  public static final int RECORDS_PER_SECOND = 100;
+  public static final int CONTROL_BATCH_SIZE = 100;
+  public static final int BATCH_SIZE = 1_000_0;
+  public static final double LATENCY_BOUND = 0.0001;
+  public static final int TIME_WINDOW = 10;
   public static final GeneratorFunction<Long, Measurement> EVENT_GENERATOR = index -> new Measurement();
 
   // define output tags
@@ -48,37 +49,39 @@ public abstract class Settings {
   public final MetricsOutput toAnalyser2 = new MetricsOutput("out_to_analyser2");
   public final MetricsOutput toAnalyser3 = new MetricsOutput("out_to_analyser3");
   public final MetricsOutput toAnalyser4 = new MetricsOutput("out_to_analyser4");
-  public final MetricsOutput toJoiner = new MetricsOutput("out_to_joiner");
   public final MeasurementOutput toOperator4 = new MeasurementOutput("out_to_operator4");
 
-  public String[] SOURCE_TYPES = new String[]{"0", "1", "2", "3"};
-  public String[] O1_OUTPUT_TYPES = new String[]{"11", "12"};
-  public String[] O2_OUTPUT_TYPES = new String[]{"21", "22"};
-  public String[] O3_INPUT_TYPES = new String[]{"11", "21"};
-  public String[] O4_INPUT_TYPES = new String[]{"12", "22"};
-  public String[] O3_OUTPUT_TYPES = new String[]{"1000"};
-  public String[] O4_OUTPUT_TYPES = new String[]{"2000"};
+//  public String[] SOURCE_TYPES = new String[]{"0", "1", "2", "3"};
+//  public String[] O1_OUTPUT_TYPES = new String[]{"11", "12"};
+//  public String[] O2_OUTPUT_TYPES = new String[]{"21", "22"};
+//  public String[] O3_INPUT_TYPES = new String[]{"11", "21"};
+//  public String[] O4_INPUT_TYPES = new String[]{"12", "22"};
+//  public String[] O3_OUTPUT_TYPES = new String[]{"1000"};
+//  public String[] O4_OUTPUT_TYPES = new String[]{"2000"};
 
   public OperatorInfo[] OPERATORS = new OperatorInfo[]{
     new OperatorInfo().withName("o1")
       .withInputTypes("1", "2", "3", "0")
       .withControlBatchSize(CONTROL_BATCH_SIZE)
+      .withLatencyBound(LATENCY_BOUND)
       .withPatterns(
-      EventPattern.SEQ("11", "0|2:1|1", 10, "o3"),
-      EventPattern.AND("12", "1:2:3", 10, "o4")
+      EventPattern.SEQ("11", "0|2:1|1", TIME_WINDOW, "o3"),
+      EventPattern.AND("12", "1:2:3", TIME_WINDOW, "o4")
     ),
 
     new OperatorInfo().withName("o2")
       .withInputTypes("1", "2", "3", "0")
       .withControlBatchSize(CONTROL_BATCH_SIZE)
+      .withLatencyBound(LATENCY_BOUND)
       .withPatterns(
-      EventPattern.SEQ("21", "0|2:1|1", 10, "o3"),
-      EventPattern.AND("22", "1:2:3", 10, "o4")
+      EventPattern.SEQ("21", "0|2:1|1", TIME_WINDOW, "o3"),
+      EventPattern.AND("22", "1:2:3", TIME_WINDOW, "o4")
     ),
 
     new OperatorInfo().withName("o3")
       .withInputTypes("11", "21")
       .withControlBatchSize(CONTROL_BATCH_SIZE)
+      .withLatencyBound(LATENCY_BOUND)
       .withPatterns(
         EventPattern.AND("1000", "11:21", 10, (String[]) null)
       ).toSink(),
@@ -86,6 +89,7 @@ public abstract class Settings {
     new OperatorInfo().withName("o4")
       .withInputTypes("12", "22")
       .withControlBatchSize(CONTROL_BATCH_SIZE)
+      .withLatencyBound(LATENCY_BOUND)
       .withPatterns(
         EventPattern.AND("2000", "12:22", 10, (String[]) null)
       ).toSink()

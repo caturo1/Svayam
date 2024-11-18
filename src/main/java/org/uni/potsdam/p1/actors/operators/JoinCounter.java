@@ -20,6 +20,7 @@ import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
  */
 public class JoinCounter extends ProcessFunction<Measurement, Measurement> {
 
+  // define logger for data analytics
   private final Logger joinLog = LoggerFactory.getLogger("joinLog");
 
   // define outputTags for the side-outputs
