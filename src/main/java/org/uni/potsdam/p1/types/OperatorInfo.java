@@ -29,6 +29,7 @@ public class OperatorInfo implements Serializable {
   public String name;
   public HashMap<String, Integer> indexer = new HashMap<>(4);
   public Metrics[] metrics = new Metrics[4];
+  public int controlBatchSize;
 
   /**
    * Constructs an empty {@link OperatorInfo} instance
@@ -47,12 +48,13 @@ public class OperatorInfo implements Serializable {
   /**
    * Constructs an OperatorInfo instance with the desired parameters.
    */
-  public OperatorInfo(String name, String[] inputTypes, EventPattern[] patterns, boolean isSinkOperator) { //} EventPattern... patterns) {
+  public OperatorInfo(String name, String[] inputTypes, int controlBatchSize, EventPattern[] patterns, boolean isSinkOperator) {
     this();
     this.inputTypes = inputTypes;
     this.patterns = patterns;
     this.isSinkOperator = isSinkOperator;
     this.name = name;
+    this.controlBatchSize = controlBatchSize;
   }
 
   @Override
@@ -150,6 +152,19 @@ public class OperatorInfo implements Serializable {
    */
   public OperatorInfo withName(String name) {
     this.name = name;
+    return this;
+  }
+
+  /**
+   * Sets the size of the control batch size for this operator's {@link org.uni.potsdam.p1.actors.measurers.Measurer}
+   * instances.
+   *
+   * @param size Amount of events needed to calculate the running average of this operator
+   *             metric measurers
+   * @return Reference to the given OperatorInfo-object
+   */
+  public OperatorInfo withControlBatchSize(int size) {
+    this.controlBatchSize = size;
     return this;
   }
 

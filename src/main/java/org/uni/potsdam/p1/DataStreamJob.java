@@ -25,10 +25,11 @@ import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.uni.potsdam.p1.actors.enrichers.Coordinator;
-import org.uni.potsdam.p1.actors.enrichers.EventJoiner;
 import org.uni.potsdam.p1.actors.enrichers.SCAnalyser;
-import org.uni.potsdam.p1.actors.operators.EventCounter;
 import org.uni.potsdam.p1.actors.operators.FSMOperator;
+import org.uni.potsdam.p1.actors.operators.JoinCounter;
+import org.uni.potsdam.p1.actors.operators.SinkLogger;
+import org.uni.potsdam.p1.actors.operators.SourceCounter;
 import org.uni.potsdam.p1.types.Measurement;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.Settings;
@@ -59,78 +60,104 @@ public class DataStreamJob extends Settings {
 
     // define the data sources for the job
     DataStream<Measurement> source1 = env.fromSource(
-      createMeasurementSource(RECORDS_PER_SECOND),
-      WatermarkStrategy.noWatermarks(),
-      "Generator1").slotSharingGroup("sources").name("Source1");
+        createMeasurementSource(RECORDS_PER_SECOND),
+        WatermarkStrategy.noWatermarks(), "Generator1")
+//      .slotSharingGroup("sources")
+      .name("Source1");
 
     DataStream<Measurement> source2 = env.fromSource(
-      createMeasurementSource(RECORDS_PER_SECOND),
-      WatermarkStrategy.noWatermarks(),
-      "Generator2").slotSharingGroup("sources").name("Source2");
+        createMeasurementSource(RECORDS_PER_SECOND),
+        WatermarkStrategy.noWatermarks(), "Generator2")
+//      .slotSharingGroup("sources")
+      .name("Source2");
 
     // use EventCounters to measure the output rates of the sources per second and to forward the events to the OPERATORS
-    SingleOutputStreamOperator<Measurement> counter1 = simpleConnect(source1, global).process(new EventCounter("o1", SOURCE_TYPES, toAnalyser1, toCoordinator, CONTROL_BATCH_SIZE)).slotSharingGroup("sources").name("Counter1");
-    SingleOutputStreamOperator<Measurement> counter2 = simpleConnect(source2, global).process(new EventCounter("o2", SOURCE_TYPES, toAnalyser2, toCoordinator, CONTROL_BATCH_SIZE)).slotSharingGroup("sources").name("Counter2");
+    SingleOutputStreamOperator<Measurement> counter1 = simpleConnect(source1, global)
+      .process(new SourceCounter(OPERATORS[0])
+        .setMetricsOutput("lambdaIn", toAnalyser1)
+        .setMetricsOutput("sos", toCoordinator))
+//      .slotSharingGroup("sources")
+      .name("Counter1");
+
+    SingleOutputStreamOperator<Measurement> counter2 = simpleConnect(source2, global)
+      .process(new SourceCounter(OPERATORS[1])
+        .setMetricsOutput("lambdaIn", toAnalyser2)
+        .setMetricsOutput("sos", toCoordinator))
+//      .slotSharingGroup("sources")
+      .name("Counter2");
 
     // set OPERATORS 1 and 2 and collect both their processing (mu) and their output rates (lambda) on side outputs
-    SingleOutputStreamOperator<Measurement> operator1 = simpleConnect(source1, global).process(
-      new FSMOperator(OPERATORS[0], CONTROL_BATCH_SIZE)
+    SingleOutputStreamOperator<Measurement> operator1 = simpleConnect(source1, global)
+      .process(new FSMOperator(OPERATORS[0])
         .setSideOutput("12", toOperator4)
         .setMetricsOutput("ptime", toAnalyser1)
-        .setMetricsOutput("lambdaOut", toJoiner)
-        .setMetricsOutput("sos", toCoordinator)
-    ).slotSharingGroup("o1").name("Operator1");
+        .setMetricsOutput("sos", toCoordinator))
+//      .slotSharingGroup("o1")
+      .name("Operator1");
 
-    SingleOutputStreamOperator<Measurement> operator2 = simpleConnect(source2, global).process(
-      new FSMOperator(OPERATORS[1], CONTROL_BATCH_SIZE)
+    SingleOutputStreamOperator<Measurement> operator2 = simpleConnect(source2, global)
+      .process(new FSMOperator(OPERATORS[1])
         .setSideOutput("22", toOperator4)
         .setMetricsOutput("ptime", toAnalyser2)
-        .setMetricsOutput("lambdaOut", toJoiner)
-        .setMetricsOutput("sos", toCoordinator)
-    ).slotSharingGroup("o2").name("Operator2");
+        .setMetricsOutput("sos", toCoordinator))
+//      .slotSharingGroup("o2")
+      .name("Operator2");
 
     // gather the output rates of both operator 1 and 2, join the output rates which are relevant to the different OPERATORS downstream and forward the information to them
-    SingleOutputStreamOperator<Metrics> joined = operator1.getSideOutput(toJoiner).keyBy(map -> map.get("batch")).connect(operator2.getSideOutput(toJoiner).keyBy(map -> map.get("batch"))).process(
-      new EventJoiner(new String[]{"11", "21", "12", "22"}, new String[]{"21", "11", "22", "12"}, toAnalyser4)).name("Joined");
+//    SingleOutputStreamOperator<Metrics> joined = operator1.getSideOutput(toJoiner).keyBy(map -> map.get("batch")).connect(operator2.getSideOutput(toJoiner).keyBy(map -> map.get("batch"))).process(
+//      new EventJoiner(new String[]{"11", "21", "12", "22"}, new String[]{"21", "11", "22", "12"}, toAnalyser4)).name("Joined");
+    SingleOutputStreamOperator<Measurement> counter3 = operator1.union(operator2)
+      .process(new JoinCounter(OPERATORS[2])
+        .setMetricsOutput("lambdaIn", toAnalyser3))
+      .name("Counter3");
+
+    SingleOutputStreamOperator<Measurement> counter4 = operator1.getSideOutput(toOperator4).union(operator2.getSideOutput(toOperator4))
+      .process(new JoinCounter(OPERATORS[3])
+        .setMetricsOutput("lambdaIn", toAnalyser4))
+      .name("Counter4");
 
     // set OPERATORS 3 and 4 and collect both their processing (mu) and their output rates (lambda) on side outputs
-    SingleOutputStreamOperator<Measurement> operator3 = simpleConnect(operator1.union(operator2), global).process(
-      new FSMOperator(OPERATORS[2], CONTROL_BATCH_SIZE)
+    SingleOutputStreamOperator<Measurement> operator3 = simpleConnect(counter3, global)
+      .process(new FSMOperator(OPERATORS[2])
         .setMetricsOutput("ptime", toAnalyser3)
-        .setMetricsOutput("sos", toCoordinator)
-    ).name("Operator3");
+        .setMetricsOutput("sos", toCoordinator))
+      .name("Operator3");
 
-    SingleOutputStreamOperator<Measurement> operator4 = simpleConnect(operator1.getSideOutput(toOperator4).union(operator2.getSideOutput(toOperator4)), global).process(
-      new FSMOperator(OPERATORS[3], CONTROL_BATCH_SIZE)
+    SingleOutputStreamOperator<Measurement> operator4 = simpleConnect(counter4, global)
+      .process(new FSMOperator(OPERATORS[3])
         .setMetricsOutput("ptime", toAnalyser4)
-        .setMetricsOutput("sos", toCoordinator)
-    ).name("Operator4");
+        .setMetricsOutput("sos", toCoordinator))
+      .name("Operator4");
 
-    operator3.union(operator4).map(Measurement::toJson).sinkTo(control);
+    operator3.union(operator4).flatMap(new SinkLogger());
 
     // connect the stream of input rates with the stream of processing times for each operator, analyse their characteristics and contact the coordinator if necessary
     SingleOutputStreamOperator<Metrics> analyser1 = counter1.getSideOutput(toAnalyser1).keyBy(map -> map.get("batch"))
       .connect(operator1.getSideOutput(toAnalyser1).keyBy(map -> map.get("batch")))
       .process(new SCAnalyser("o1", SOURCE_TYPES, O1_OUTPUT_TYPES, toKafka, LATENCY_BOUND))
-      .slotSharingGroup("an")
+//      .slotSharingGroup("an")
       .name("Analyser1");
 
-    SingleOutputStreamOperator<Metrics> analyser2 = counter2.getSideOutput(toAnalyser2).keyBy(map -> map.get("batch"))
+    SingleOutputStreamOperator<Metrics> analyser2 = counter2.getSideOutput(toAnalyser2)
+      .keyBy(map -> map.get("batch"))
       .connect(operator2.getSideOutput(toAnalyser2).keyBy(map -> map.get("batch")))
       .process(new SCAnalyser("o2", SOURCE_TYPES, O2_OUTPUT_TYPES, toKafka, LATENCY_BOUND))
-      .slotSharingGroup("an")
+//      .slotSharingGroup("an")
       .name("Analyser2");
 
-    SingleOutputStreamOperator<Metrics> analyser3 = joined.keyBy(map -> map.get("batch"))
+    SingleOutputStreamOperator<Metrics> analyser3 = counter3.getSideOutput(toAnalyser3)
+      .keyBy(map -> map.get("batch"))
       .connect(operator3.getSideOutput(toAnalyser3).keyBy(map -> map.get("batch")))
       .process(new SCAnalyser("o3", O3_INPUT_TYPES, O3_OUTPUT_TYPES, toKafka, LATENCY_BOUND))
-      .slotSharingGroup("an").name("Analyser3");
+//      .slotSharingGroup("an")
+      .name("Analyser3");
 
-    SingleOutputStreamOperator<Metrics> analyser4 =
-      joined.getSideOutput(toAnalyser4).keyBy(map -> map.get("batch"))
-        .connect(operator4.getSideOutput(toAnalyser4).keyBy(map -> map.get("batch")))
-        .process(new SCAnalyser("o4", O4_INPUT_TYPES, O4_OUTPUT_TYPES, toKafka, LATENCY_BOUND))
-        .slotSharingGroup("an").name("Analyser4");
+    SingleOutputStreamOperator<Metrics> analyser4 = counter4.getSideOutput(toAnalyser4)
+      .keyBy(map -> map.get("batch"))
+      .connect(operator4.getSideOutput(toAnalyser4).keyBy(map -> map.get("batch")))
+      .process(new SCAnalyser("o4", O4_INPUT_TYPES, O4_OUTPUT_TYPES, toKafka, LATENCY_BOUND))
+//      .slotSharingGroup("an")
+      .name("Analyser4");
 
     // gather the outputs of all actors relevant to the coordinator
     DataStream<Metrics> streamToCoordinator = analyser1.union(analyser2)
@@ -150,6 +177,7 @@ public class DataStreamJob extends Settings {
     // store shedding rates in kafka
     coordinatorOutput.getSideOutput(toKafka).sinkTo(globalChannelOut);
 
+    coordinatorOutput.sinkTo(control);
     return env.execute("Flink Java CEP Prototype");
   }
 }

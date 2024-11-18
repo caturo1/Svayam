@@ -38,7 +38,7 @@ public abstract class Settings {
   public static final int RECORDS_PER_SECOND = 2297;
   public static final int CONTROL_BATCH_SIZE = 5000;
   public static final int BATCH_SIZE = 1_000_000;
-  public static double LATENCY_BOUND = 0.01;
+  public static double LATENCY_BOUND = 0.001;
   public static final GeneratorFunction<Long, Measurement> EVENT_GENERATOR = index -> new Measurement();
 
   // define output tags
@@ -62,6 +62,7 @@ public abstract class Settings {
   public OperatorInfo[] OPERATORS = new OperatorInfo[]{
     new OperatorInfo().withName("o1")
       .withInputTypes("1", "2", "3", "0")
+      .withControlBatchSize(CONTROL_BATCH_SIZE)
       .withPatterns(
       EventPattern.SEQ("11", "0|2:1|1", 10, "o3"),
       EventPattern.AND("12", "1:2:3", 10, "o4")
@@ -69,6 +70,7 @@ public abstract class Settings {
 
     new OperatorInfo().withName("o2")
       .withInputTypes("1", "2", "3", "0")
+      .withControlBatchSize(CONTROL_BATCH_SIZE)
       .withPatterns(
       EventPattern.SEQ("21", "0|2:1|1", 10, "o3"),
       EventPattern.AND("22", "1:2:3", 10, "o4")
@@ -76,12 +78,14 @@ public abstract class Settings {
 
     new OperatorInfo().withName("o3")
       .withInputTypes("11", "21")
+      .withControlBatchSize(CONTROL_BATCH_SIZE)
       .withPatterns(
         EventPattern.AND("1000", "11:21", 10, (String[]) null)
       ).toSink(),
 
     new OperatorInfo().withName("o4")
       .withInputTypes("12", "22")
+      .withControlBatchSize(CONTROL_BATCH_SIZE)
       .withPatterns(
         EventPattern.AND("2000", "12:22", 10, (String[]) null)
       ).toSink()

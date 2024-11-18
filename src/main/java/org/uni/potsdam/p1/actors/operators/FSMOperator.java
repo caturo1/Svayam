@@ -70,16 +70,15 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
    * specified batchSize for the {@link Measurer} instances used to calculate the processing
    * {@link Metrics}.
    *
-   * @param operator  Information about this operator.
-   * @param batchSize Amount of events needed to calculate the running average of this
-   *                  operator's metrics.
+   * @param operator Information about this operator.
    */
-  public FSMOperator(OperatorInfo operator, int batchSize) {
+  public FSMOperator(OperatorInfo operator) {
 
     // gather basic information
     String groupName = operator.name;
     String[] outputTypes = operator.getOutputTypes();
     String[] inputTypes = operator.inputTypes;
+    int batchSize = operator.controlBatchSize;
 
     // initialise Measurer
     outputRateMeasurer = new CountingMeasurer(groupName, outputTypes, "lambdaOut", batchSize);
@@ -167,7 +166,7 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
    *
    * @param value The stream element
    * @param ctx   A {@link Context} that allows querying the timestamp of the element, querying the
-   *              {@link TimeDomain} of the firing timer and getting a {@link TimerService} for registering
+   *              TimeDomain of the firing timer and getting a TimerService for registering
    *              timers and querying the time. The context is only valid during the invocation of this
    *              method, do not store it.
    * @param out   The collector to emit resulting elements to
@@ -224,7 +223,7 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
    *
    * @param value The stream element
    * @param ctx   A {@link Context} that allows querying the timestamp of the element, querying the
-   *              {@link TimeDomain} of the firing timer and getting a {@link TimerService} for registering
+   *              TimeDomain of the firing timer and getting a TimerService for registering
    *              timers and querying the time. The context is only valid during the invocation of this
    *              method, do not store it.
    * @param out   The collector to emit resulting elements to
