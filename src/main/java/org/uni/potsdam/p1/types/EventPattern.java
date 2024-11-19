@@ -2,7 +2,9 @@ package org.uni.potsdam.p1.types;
 
 import java.io.Serializable;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
@@ -29,6 +31,7 @@ public class EventPattern implements Serializable {
   public String[] downstreamOperators;
   public int timeWindow;
   boolean wasVisited;
+  public Map<Integer, Integer> weightMap;
 
   /**
    * Necessary empty constructor for Flink-serialization
@@ -52,6 +55,14 @@ public class EventPattern implements Serializable {
     this.downstreamOperators = downstreamOperators;
   }
 
+  /**
+   * Alternative constructor defining basic characteristics of an EventPattern.
+   *
+   * @param name                Identifying name for this pattern.
+   * @param type                Pattern's type (AND, SEQ, OR)
+   * @param timeWindow          Maximal amount of time between the first and last events in this pattern.
+   * @param downstreamOperators Operators that receive this pattern upon its detection.
+   */
   private EventPattern(String name, String type, int timeWindow, String... downstreamOperators) {
     this.name = name;
     this.type = type;
@@ -67,6 +78,12 @@ public class EventPattern implements Serializable {
     return name;
   }
 
+  /**
+   * Parses the list of parameters from the given list.
+   *
+   * @return Parameters stored in the same order in which they were first written in this
+   * object's constructor-call.
+   */
   public int[] getParameters() {
     int separator = type.indexOf(":");
     String kind = type.substring(0, separator);
@@ -82,6 +99,34 @@ public class EventPattern implements Serializable {
       }).toArray();
     }
     throw new IllegalArgumentException("False kind of EventPattern type given. Please use AND, SEQ or OR.");
+  }
+
+  /**
+   * Returns a map with the weights assigned to each parameter. In AND or OR patterns this
+   * will always be 1. In SEQ patterns this will be defined during the pattern creation
+   * for each individual parameter.
+   *
+   * @return The map object linking the input types to their frequency in the pattern.
+   */
+  public Map<Integer, Integer> getWeightMaps() {
+    if (weightMap == null) {
+      int separator = type.indexOf(":");
+      String kind = type.substring(0, separator);
+      String[] split = type.substring(separator + 1).split(":");
+      if (kind.matches("(AND|OR)")) {
+        weightMap = Arrays.stream(split).map(Integer::valueOf).collect(Collectors.toMap(
+          value -> value, value -> 1));
+      } else if (kind.equals("SEQ")) {
+        weightMap = Arrays.stream(split)
+          .collect(Collectors.toMap(
+            (String string) -> Integer.parseInt(string.substring(0, string.indexOf("|"))),
+            (String string) -> Integer.parseInt(string.substring(string.indexOf("|") + 1))
+          ));
+      } else {
+        throw new IllegalStateException("Unknown Pattern type used.");
+      }
+    }
+    return weightMap;
   }
 
   @Override

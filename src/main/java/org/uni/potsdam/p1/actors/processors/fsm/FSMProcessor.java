@@ -5,7 +5,6 @@ import org.uni.potsdam.p1.types.Measurement;
 
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -94,7 +93,7 @@ public abstract class FSMProcessor implements Serializable {
             return fsm.contains(current.participants);
           });
           currentFSMs.remove(current);
-          currentFSMs.remove(toDelete);
+          currentFSMs.removeAll(toDelete);
 //          output.append(value);
 //          return new Measurement(patternType, output.toString(), 0);
           return new Measurement(patternType);
@@ -111,7 +110,7 @@ public abstract class FSMProcessor implements Serializable {
   }
 
   /**
-   * Determiness which types can initiate a new Finite State Machine
+   * Determines which types can initiate a new Finite State Machine
    *
    * @param type Initiator type
    * @return True, if this type meet a specified condition.
@@ -148,7 +147,7 @@ public abstract class FSMProcessor implements Serializable {
 
   /**
    * Uses a new {@link Measurement} event to advance the state of a given finite state machine.
-   * Creeates a new machine in this advanced state and returns it.
+   * Creates a new machine in this advanced state and returns it.
    *
    * @param current Given finite state machine.
    * @param value   Event for the state transition.
@@ -168,7 +167,7 @@ public abstract class FSMProcessor implements Serializable {
 
   @Override
   public int hashCode() {
-    return Objects.hash(currentFSMs, patternType, Arrays.hashCode(parameters));
+    return Objects.hash(currentFSMs, patternType, parameters);
   }
 
   /**

@@ -28,7 +28,7 @@ services:
     image: flink:latest
     depends_on:
       - kafka
-    ports: 
+    ports:
       - "8081:8081"
     command: jobmanager
     environment:
@@ -45,4 +45,4 @@ services:
       - |
         FLINK_PROPERTIES= 
         jobmanager.rpc.address: jobmanager
-        taskmanager.numberOfTaskSlots: 2
+        taskmanager.numberOfTaskSlots: 1

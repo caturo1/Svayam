@@ -45,7 +45,7 @@ public class JoinCounter extends ProcessFunction<Measurement, Measurement> {
     if (inputRateMeasurer.isReady() && inputRates != null) {
       ctx.output(inputRates, inputRateMeasurer.getNewestAverages());
     }
-    joinLog.info(value.toJson());
+    joinLog.info(value.toJson(value.getTypeAsKey()));
   }
 
   /**

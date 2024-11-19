@@ -35,6 +35,7 @@ import org.uni.potsdam.p1.types.outputTags.StringOutput;
  */
 public abstract class Settings {
 
+  // GENERAL JOB INFORMATION
   public static final int RECORDS_PER_SECOND = 100;
   public static final int CONTROL_BATCH_SIZE = 100;
   public static final int BATCH_SIZE = 1_000_0;
@@ -51,14 +52,7 @@ public abstract class Settings {
   public final MetricsOutput toAnalyser4 = new MetricsOutput("out_to_analyser4");
   public final MeasurementOutput toOperator4 = new MeasurementOutput("out_to_operator4");
 
-//  public String[] SOURCE_TYPES = new String[]{"0", "1", "2", "3"};
-//  public String[] O1_OUTPUT_TYPES = new String[]{"11", "12"};
-//  public String[] O2_OUTPUT_TYPES = new String[]{"21", "22"};
-//  public String[] O3_INPUT_TYPES = new String[]{"11", "21"};
-//  public String[] O4_INPUT_TYPES = new String[]{"12", "22"};
-//  public String[] O3_OUTPUT_TYPES = new String[]{"1000"};
-//  public String[] O4_OUTPUT_TYPES = new String[]{"2000"};
-
+  // define operators
   public OperatorInfo[] OPERATORS = new OperatorInfo[]{
     new OperatorInfo().withName("o1")
       .withInputTypes("1", "2", "3", "0")
@@ -95,7 +89,9 @@ public abstract class Settings {
       ).toSink()
   };
 
+  // define kafka's connection in the docker network
   public static final String KAFKA_ADDRESS = "kafka:9092";
+
   /*
     Set Kafka channels:
       -> globalChannelIn:   reads from kafka topic (global) containing the sos messages and
@@ -128,6 +124,12 @@ public abstract class Settings {
     )
     .build();
 
+  /**
+   * Execute the complex event detection job and return the system's results once finished.
+   *
+   * @return The execution results of the flink cluster
+   * @throws Exception
+   */
   public abstract JobExecutionResult execute() throws Exception;
 
   /**

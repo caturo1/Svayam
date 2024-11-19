@@ -62,4 +62,97 @@ public class Metrics implements Serializable {
   public int hashCode() {
     return Objects.hash(name, description, map);
   }
+
+  /**
+   * Calculates the smallest value stored in this Metrics instance.
+   *
+   * @return Minimum value stored in this object.
+   * @throws IllegalStateException if this objects is empty.
+   */
+  public double getMinimum() {
+    double min = Double.POSITIVE_INFINITY;
+    for (double value : map.values()) {
+      if (value < min) {
+        min = value;
+      }
+    }
+    if (min == Double.POSITIVE_INFINITY) {
+      throw new IllegalStateException("Pattern is not initialised.");
+    }
+    return min;
+  }
+
+  /**
+   * Calculates the smallest value stored in this Metrics instance weighting each instance
+   * in accordance to a given map. This map must contain key values present in this
+   * {@link Metrics} object or else the method will fail.
+   *
+   * @return Minimum value stored in this object for all shared keys with the map.
+   * @throws IllegalStateException if this objects is empty.
+   */
+  public double getWeightedMinimum(Map<Integer, Integer> weights) {
+    double min = Double.POSITIVE_INFINITY;
+    for (Map.Entry<Integer, Integer> weight : weights.entrySet()) {
+      double value = map.get(weight.getKey().toString()) / weight.getValue();
+      if (value < min) {
+        min = value;
+      }
+    }
+    if (min == Double.POSITIVE_INFINITY) {
+      throw new IllegalStateException("Pattern is not initialised.");
+    }
+    return min;
+  }
+
+  /**
+   * Updates all values of this map with zero.
+   *
+   * @return Zeroed Metrics object.
+   */
+  public Metrics withZeroedValues() {
+    map.replaceAll((k, v) -> 0.);
+    return this;
+  }
+
+  /**
+   * Calculates the highest value stored in this Metrics instance weighting each instance
+   * in accordance to a given map. This map must contain key values present in this
+   * {@link Metrics} object or else the method will fail.
+   *
+   * @return Maximum value stored in this object for all shared keys with the map.
+   * @throws IllegalStateException if this objects is empty.
+   */
+  public double getWeightedMaximum(Map<Integer, Integer> weights) {
+    double max = Double.NEGATIVE_INFINITY;
+    for (Map.Entry<Integer, Integer> weight : weights.entrySet()) {
+      double value = map.get(weight.getKey().toString()) / weight.getValue();
+      if (value > max) {
+        max = value;
+      }
+    }
+    if (max == Double.NEGATIVE_INFINITY) {
+      throw new IllegalStateException("Pattern is not initialised.");
+    }
+    return max;
+  }
+
+  /**
+   * Calculates the sum of all values stored in this Metrics instance weighting each instance
+   * in accordance to a given map. This map must contain key values present in this
+   * {@link Metrics} object or else the method will fail.
+   *
+   * @return Sum of all values stored in this object for all shared keys with the map.
+   * @throws IllegalStateException if this objects is empty.
+   */
+  public double getWeightedSum(Map<Integer, Integer> weights) {
+    double sum = 0.;
+    for (Map.Entry<Integer, Integer> weight : weights.entrySet()) {
+      double value = map.get(weight.getKey().toString()) / weight.getValue();
+      sum += value;
+    }
+    if (sum == 0.) {
+      throw new IllegalStateException("Pattern is not initialised.");
+    }
+    return sum;
+  }
 }

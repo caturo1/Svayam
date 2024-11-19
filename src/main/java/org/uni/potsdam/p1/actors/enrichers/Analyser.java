@@ -5,15 +5,21 @@ import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.util.Collector;
+import org.uni.potsdam.p1.types.EventPattern;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
+
+import java.util.Map;
 
 /**
  * This class analyses the stream characteristics of an operator. It consumes the
  * operator's input rates, processing times per pattern and its shedding shares to
  * evaluate the necessity of load shedding. If an overload is detected this class
  * will forward an empty {@link Metrics} metrics with "overloaded" description, which
- * activates the coordinator.
+ * activates the coordinator. This class can be used for both local or global load
+ * shedding. In the latter case its output must be sent to a {@link Coordinator} whereas
+ * in the first case it suffices to connect the output of an instance of this class with
+ * an operator.
  */
 public class Analyser extends KeyedProcessFunction<Double, Metrics, Metrics> {
 
@@ -31,6 +37,9 @@ public class Analyser extends KeyedProcessFunction<Double, Metrics, Metrics> {
   double lastLambda = 0.;
   double lastPtime = 0.;
   double lastAverage = 0.;
+
+  // differentiate global from local shedding
+  boolean global = true;
 
   /**
    * Constructs a new Analyser based on the information of a given operator.
@@ -70,7 +79,7 @@ public class Analyser extends KeyedProcessFunction<Double, Metrics, Metrics> {
    */
   @Override
   public void processElement(Metrics value, KeyedProcessFunction<Double, Metrics, Metrics>.Context ctx, Collector<Metrics> out) throws Exception {
-    if (value.description.equals("shares")) {
+    if (global && value.description.equals("shares")) {
       sheddingRates = value;
       if (!isShedding && value.get("shedding").equals(Double.POSITIVE_INFINITY)) {
         isShedding = true;
@@ -84,15 +93,15 @@ public class Analyser extends KeyedProcessFunction<Double, Metrics, Metrics> {
       return;
     }
     Metrics ptimes;
-    Metrics lambdaOuts;
+    Metrics lambdaIns;
     if (value.description.equals("ptime")) {
       ptimes = value;
-      lambdaOuts = metricsState.value();
+      lambdaIns = metricsState.value();
     } else {
       ptimes = metricsState.value();
-      lambdaOuts = value;
+      lambdaIns = value;
     }
-    double total = lambdaOuts.get("total");
+    double total = lambdaIns.get("total");
     double calculatedP = 0.;
     for (String key : operator.inputTypes) {
       double weight = 0;
@@ -100,24 +109,80 @@ public class Analyser extends KeyedProcessFunction<Double, Metrics, Metrics> {
         double share = (1 - sheddingRates.get(key2 + "_" + key));
         weight += share * ptimes.get(key2);
       }
-      calculatedP += (lambdaOuts.get(key) / (total == 0 ? 1 : total)) * weight;
+      calculatedP += (lambdaIns.get(key) / (total == 0 ? 1 : total)) * weight;
     }
     double B = 1 / ((1 / (calculatedP == 0 ? 1 : calculatedP)) - total);
     double ratio = Math.abs(1 - calculatedP / (lastAverage == 0 ? 1 : lastAverage));
-    double ratioLambda = Math.abs(1 - lambdaOuts.get("total") / (lastLambda == 0 ? 1 : lastLambda));
+    double ratioLambda = Math.abs(1 - lambdaIns.get("total") / (lastLambda == 0 ? 1 : lastLambda));
     double ratioPtime = Math.abs(1 - ptimes.get("total") / (lastPtime == 0 ? 1 : lastPtime));
     double bound = operator.latencyBound;
     if (lastAverage != 0.) {
       if ((calculatedP > bound || (ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > bound) || (isShedding && B < bound)) {
-        long id = System.nanoTime();
-        Metrics empty = new Metrics(value.name, "overloaded", 0);
-        empty.id = id;
-        out.collect(empty);
+        if (global) {
+          informCoordinator(value.name, out);
+        } else {
+          forwardSheddingRates(operator, lambdaIns, out);
+        }
+      } else if (!global && isShedding) {
+        out.collect(sheddingRates.withZeroedValues());
+        isShedding = false;
       }
     }
     lastAverage = calculatedP;
     lastPtime = ptimes.get("total");
     lastLambda = total;
     metricsState.clear();
+  }
+
+  /**
+   * Marks this instance for local load shedding.
+   */
+  public void setLocal() {
+    global = false;
+  }
+
+  /**
+   * Calculates the shedding rates of an operator locally and forwards it to the main
+   * output channel of this operator.
+   */
+  private void forwardSheddingRates(OperatorInfo operator, Metrics lambdaIns, Collector<Metrics> out) {
+    for (EventPattern eventPattern : operator.patterns) {
+      Map<Integer, Integer> weights = eventPattern.getWeightMaps();
+      double factor = eventPattern.getType().equals("OR") ? lambdaIns.getWeightedSum(weights) : lambdaIns.getWeightedMinimum(weights);
+      fillSheddingShares(factor, eventPattern, lambdaIns);
+    }
+    if (!isShedding) {
+      isShedding = true;
+    }
+    out.collect(sheddingRates);
+  }
+
+  /**
+   * For local load shedding.
+   * Updates the load shedding share for each input type and for each pattern.
+   *
+   * @param factor       Multiplication factor specific for each pattern Type.
+   * @param eventPattern Pattern for which the load shedding shares are being calculated.
+   * @param lambdaIns    Input rates of this operator.
+   */
+  private void fillSheddingShares(double factor, EventPattern eventPattern, Metrics lambdaIns) {
+    for (String inputType : operator.inputTypes) {
+      double value = factor > 0 ? Math.abs(1 - (lambdaIns.get(inputType) / factor)) : factor;
+      sheddingRates.put(eventPattern.name + "_" + inputType, value);
+    }
+  }
+
+  /**
+   * For global load shedding.
+   * Informs the coordinator that the operator corresponding to this analyser is overloaded.
+   *
+   * @param operatorsName Name of the operator.
+   * @param out           Collector of this operator's outputs.
+   */
+  private void informCoordinator(String operatorsName, Collector<Metrics> out) {
+    long id = System.nanoTime();
+    Metrics empty = new Metrics(operatorsName, "overloaded", 0);
+    empty.id = id;
+    out.collect(empty);
   }
 }

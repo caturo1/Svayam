@@ -127,6 +127,7 @@ public class DataStreamJob extends Settings {
         .setMetricsOutput("sos", toCoordinator))
       .name("Operator4");
 
+    // log the system's output
     operator3.union(operator4).flatMap(new SinkLogger());
 
     // connect the stream of input rates with the stream of processing times for each operator, analyse their characteristics and contact the coordinator if necessary
@@ -180,7 +181,9 @@ public class DataStreamJob extends Settings {
     // store shedding rates in kafka
     coordinatorOutput.getSideOutput(toKafka).sinkTo(globalChannelOut);
 
+    // output stream for debugging - returns the results of the coordinator
     coordinatorOutput.sinkTo(control);
+
     return env.execute("Flink Java CEP Prototype");
   }
 }

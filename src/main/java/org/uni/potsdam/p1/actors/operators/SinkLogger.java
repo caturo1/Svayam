@@ -15,6 +15,6 @@ public class SinkLogger extends RichFlatMapFunction<Measurement, Object> {
 
   @Override
   public void flatMap(Measurement value, Collector<Object> out) throws Exception {
-    sinkLog.info(value.toJson());
+    sinkLog.info(value.toJson(value.getTypeAsKey()));
   }
 }

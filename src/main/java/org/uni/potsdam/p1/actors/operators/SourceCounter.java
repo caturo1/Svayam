@@ -30,6 +30,7 @@ public class SourceCounter extends KeyedCoProcessFunction<Long, Measurement, Str
 
   // define the Measurers for the stream characteristics
   CountingMeasurer inputRateMeasurer;
+  String name;
 
   /**
    * Initialise the event counter.
@@ -42,6 +43,7 @@ public class SourceCounter extends KeyedCoProcessFunction<Long, Measurement, Str
     inputRateMeasurer = new CountingMeasurer(operator.name, operator.inputTypes, "lambdaIn", operator.controlBatchSize);
     inputRates = output;
     this.sosOutput = sosOutput;
+    this.name = operator.name;
   }
 
   /**
@@ -51,6 +53,7 @@ public class SourceCounter extends KeyedCoProcessFunction<Long, Measurement, Str
    */
   public SourceCounter(OperatorInfo operator) {
     inputRateMeasurer = new CountingMeasurer(operator.name, operator.inputTypes, "lambdaIn", operator.controlBatchSize);
+    this.name = operator.name;
   }
 
   // measure output rates; forward source events to the operator
@@ -61,7 +64,7 @@ public class SourceCounter extends KeyedCoProcessFunction<Long, Measurement, Str
     if (inputRateMeasurer.isReady()) {
       ctx.output(inputRates, inputRateMeasurer.getNewestAverages());
     }
-    sourceLog.info(value.toJson());
+    sourceLog.info(value.toJson(name));
   }
 
   // send output rates to coordinator if a sos-message is received from the kafka channel
