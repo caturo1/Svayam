@@ -15,7 +15,7 @@ import java.util.Set;
 public class Metrics implements Serializable {
   public String name;
   public String description;
-  public HashMap<String, Double> map;
+  public Map<String, Double> map;
   public long id;
 
   /**
@@ -32,9 +32,14 @@ public class Metrics implements Serializable {
   public Metrics() {
   }
 
+  public boolean isEmpty() {
+    return map.isEmpty();
+  }
+
   @Override
   public String toString() {
-//    return name + ":" + description + ":" + map.toString();
+//    return "{ \"type\": " + type + ", \"time\": " + eventTime + "}";
+//    return name + map.toString();
     return map.toString();
   }
 
@@ -90,10 +95,10 @@ public class Metrics implements Serializable {
    * @return Minimum value stored in this object for all shared keys with the map.
    * @throws IllegalStateException if this objects is empty.
    */
-  public double getWeightedMinimum(Map<Integer, Integer> weights) {
+  public double getWeightedMinimum(Map<String, Integer> weights) {
     double min = Double.POSITIVE_INFINITY;
-    for (Map.Entry<Integer, Integer> weight : weights.entrySet()) {
-      double value = map.get(weight.getKey().toString()) / weight.getValue();
+    for (Map.Entry<String, Integer> weight : weights.entrySet()) {
+      double value = map.get(weight.getKey()) / weight.getValue();
       if (value < min) {
         min = value;
       }
@@ -122,10 +127,10 @@ public class Metrics implements Serializable {
    * @return Maximum value stored in this object for all shared keys with the map.
    * @throws IllegalStateException if this objects is empty.
    */
-  public double getWeightedMaximum(Map<Integer, Integer> weights) {
+  public double getWeightedMaximum(Map<String, Integer> weights) {
     double max = Double.NEGATIVE_INFINITY;
-    for (Map.Entry<Integer, Integer> weight : weights.entrySet()) {
-      double value = map.get(weight.getKey().toString()) / weight.getValue();
+    for (Map.Entry<String, Integer> weight : weights.entrySet()) {
+      double value = map.get(weight.getKey()) / weight.getValue();
       if (value > max) {
         max = value;
       }
@@ -144,10 +149,10 @@ public class Metrics implements Serializable {
    * @return Sum of all values stored in this object for all shared keys with the map.
    * @throws IllegalStateException if this objects is empty.
    */
-  public double getWeightedSum(Map<Integer, Integer> weights) {
+  public double getWeightedSum(Map<String, Integer> weights) {
     double sum = 0.;
-    for (Map.Entry<Integer, Integer> weight : weights.entrySet()) {
-      double value = map.get(weight.getKey().toString()) / weight.getValue();
+    for (Map.Entry<String, Integer> weight : weights.entrySet()) {
+      double value = map.get(weight.getKey()) / weight.getValue();
       sum += value;
     }
     if (sum == 0.) {

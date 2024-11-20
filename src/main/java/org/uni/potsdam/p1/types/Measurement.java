@@ -48,10 +48,7 @@ public class Measurement implements Serializable {
 
   @Override
   public String toString() {
-    return "Measurement{" +
-      " type=" + type +
-      ", eventTime=" + eventTime +
-      '}';
+    return "{ \"type\": " + type + ", \"time\": " + eventTime + "}";
   }
 
   public String toJson(String name) {

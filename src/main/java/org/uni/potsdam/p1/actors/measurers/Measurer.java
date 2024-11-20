@@ -99,4 +99,13 @@ public abstract class Measurer<T> implements Serializable {
   public int hashCode() {
     return Objects.hash(indexer, batchSize, batch, runningQueue, Arrays.hashCode(countArray), Arrays.hashCode(storeArray), accessIndex, results);
   }
+
+  abstract void calculateNewestAverages(int queueSize);
+
+  public Metrics getLatestAverages() {
+    if (results.isEmpty()) {
+      calculateNewestAverages(runningQueue.size());
+    }
+    return results;
+  }
 }

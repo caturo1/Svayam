@@ -31,7 +31,8 @@ public class EventPattern implements Serializable {
   public String[] downstreamOperators;
   public int timeWindow;
   boolean wasVisited;
-  public Map<Integer, Integer> weightMap;
+  public Map<String, Integer> weightMap;
+  int numberOfParameters = 0;
 
   /**
    * Necessary empty constructor for Flink-serialization
@@ -108,22 +109,25 @@ public class EventPattern implements Serializable {
    *
    * @return The map object linking the input types to their frequency in the pattern.
    */
-  public Map<Integer, Integer> getWeightMaps() {
+  public Map<String, Integer> getWeightMaps() {
     if (weightMap == null) {
       int separator = type.indexOf(":");
       String kind = type.substring(0, separator);
       String[] split = type.substring(separator + 1).split(":");
       if (kind.matches("(AND|OR)")) {
-        weightMap = Arrays.stream(split).map(Integer::valueOf).collect(Collectors.toMap(
+        weightMap = Arrays.stream(split).collect(Collectors.toMap(
           value -> value, value -> 1));
       } else if (kind.equals("SEQ")) {
         weightMap = Arrays.stream(split)
           .collect(Collectors.toMap(
-            (String string) -> Integer.parseInt(string.substring(0, string.indexOf("|"))),
+            (String string) -> string.substring(0, string.indexOf("|")),
             (String string) -> Integer.parseInt(string.substring(string.indexOf("|") + 1))
           ));
       } else {
         throw new IllegalStateException("Unknown Pattern type used.");
+      }
+      for (Integer value : weightMap.values()) {
+        numberOfParameters += value;
       }
     }
     return weightMap;
@@ -199,5 +203,9 @@ public class EventPattern implements Serializable {
    */
   public static EventPattern OR(String name, String parameters, int timeWindow, String downstreamOperators) {
     return new EventPattern(name, "OR:" + parameters, timeWindow, downstreamOperators);
+  }
+
+  public int getNumberOfParameters() {
+    return numberOfParameters;
   }
 }

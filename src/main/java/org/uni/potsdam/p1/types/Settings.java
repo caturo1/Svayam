@@ -19,7 +19,7 @@ import org.uni.potsdam.p1.types.outputTags.StringOutput;
 
 /**
  * <p>
- * This class stores the basic information of a DataStreamJob and serves as a standard
+ * This class stores the basic information of a data stream job and serves as a standard
  * for implementing new Flink-Queries. Define here the following global parameters:
  * </p>
  * <ol>
@@ -36,10 +36,10 @@ import org.uni.potsdam.p1.types.outputTags.StringOutput;
 public abstract class Settings {
 
   // GENERAL JOB INFORMATION
-  public static final int RECORDS_PER_SECOND = 100;
-  public static final int CONTROL_BATCH_SIZE = 100;
-  public static final int BATCH_SIZE = 1_000_0;
-  public static final double LATENCY_BOUND = 0.0001;
+  public static final int RECORDS_PER_SECOND = 2297;
+  public static final int CONTROL_BATCH_SIZE = 5000;
+  public static final int BATCH_SIZE = 20_000_000;
+  public static final double LATENCY_BOUND = 0.00055;
   public static final int TIME_WINDOW = 10;
   public static final GeneratorFunction<Long, Measurement> EVENT_GENERATOR = index -> new Measurement();
 
@@ -60,8 +60,8 @@ public abstract class Settings {
       .withLatencyBound(LATENCY_BOUND)
       .withPatterns(
       EventPattern.SEQ("11", "0|2:1|1", TIME_WINDOW, "o3"),
-      EventPattern.AND("12", "1:2:3", TIME_WINDOW, "o4")
-    ),
+      EventPattern.AND("12", "1:2:3", TIME_WINDOW, "o4"))
+    ,
 
     new OperatorInfo().withName("o2")
       .withInputTypes("1", "2", "3", "0")

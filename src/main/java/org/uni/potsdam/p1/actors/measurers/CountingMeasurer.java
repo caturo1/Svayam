@@ -5,6 +5,7 @@ import org.uni.potsdam.p1.types.Metrics;
 
 import java.time.Duration;
 import java.time.LocalTime;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -56,6 +57,20 @@ public class CountingMeasurer extends Measurer<LocalTime> {
     return results;
   }
 
+  public double getTotalAverageRate() {
+    LocalTime oldestTimestamp = Objects.requireNonNull(runningQueue.peek());
+    LocalTime newestTimestamp = runningQueue.peekLast();
+    double elapsedTime = (double) Duration.between(oldestTimestamp, newestTimestamp).toMillis() / 1000;
+    return elapsedTime == 0 ? elapsedTime : ((double) runningQueue.size() / elapsedTime);
+  }
+
+  @Override
+  void calculateNewestAverages(int queueSize) {
+    LocalTime oldestTimestamp = runningQueue.peek();
+    LocalTime newestTimestamp = runningQueue.peekLast();
+    calculateNewestAverages(oldestTimestamp, newestTimestamp, queueSize);
+  }
+
   /**
    * Calculates the newest averages of events per second for a queue of a specific size.
    *
@@ -64,7 +79,7 @@ public class CountingMeasurer extends Measurer<LocalTime> {
    * @param queueSize       Expected size of the queue
    */
   public void calculateNewestAverages(LocalTime oldestTimestamp, LocalTime newestTimestamp, int queueSize) {
-    double elapsedTime = (double) Duration.between(oldestTimestamp, newestTimestamp).toMillis() / 1000;
+    double elapsedTime = Duration.between(oldestTimestamp, newestTimestamp).toMillis() / 1000.;
     double averageRate = elapsedTime == 0 ? elapsedTime : ((double) queueSize / elapsedTime);
     results.put("total", averageRate);
     for (String key : indexer.keySet()) {

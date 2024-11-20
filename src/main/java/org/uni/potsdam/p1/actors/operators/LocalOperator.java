@@ -1,5 +1,6 @@
 package org.uni.potsdam.p1.actors.operators;
 
+import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.streaming.api.functions.co.KeyedCoProcessFunction;
 import org.apache.flink.util.Collector;
 import org.slf4j.Logger;
@@ -24,28 +25,10 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * <p>
- * This class serves as the basic operator standard for processing complex events.
- * A FSMOperator can detect multiple event patterns and have multiple outputs. It
- * processes events using a {@link FSMProcessor} for each pattern and records basic
- * {@link Metrics} about the quality of its pattern-detection-process like:
- * </p>
- * <ul>
- *     <li>output rates = lambdaOut</li>
- *     <li>processing rates = mu</li>
- *     <li>processing time pro parameters = ptime</li>
- * </ul>
- * <p>
- * Instances of this class should receive a connected keyed stream of Measurements and Strings.
- * The Measurement-stream for the events to be processed and the String-stream for
- * Coordinator-messages.
- * </p>
- *
- * @see <a href=https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/learn-flink/etl/#keyed-streams">https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/learn-flink/etl/#keyed-streams</a>
- * @see <a href="https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/learn-flink/etl/#connected-streams">https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/learn-flink/etl/#connected-streams</a>
- * @see org.uni.potsdam.p1.actors.enrichers.Coordinator
+ * Variant of the {@link FSMOperator} for local load shedding. This operator analyses its
+ * own stream characteristics and calculates its own shedding configuration.
  */
-public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, String, Measurement> {
+public class LocalOperator extends ProcessFunction<Measurement, Measurement> {
 
   private final Logger opLog = LoggerFactory.getLogger("opLog");
 
@@ -62,8 +45,9 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
   CountingMeasurer processingRateMeasurer;
 
   // define sheddingShares
-  Metrics sheddingShares;
+  public Metrics sheddingRates;
   boolean isShedding = false;
+  double factor;
 
   // set additional operator information
   OperatorInfo operator;
@@ -76,7 +60,7 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
    *
    * @param operator Information about this operator.
    */
-  public FSMOperator(OperatorInfo operator) {
+  public LocalOperator(OperatorInfo operator) {
 
     // gather basic information
     String groupName = operator.name;
@@ -109,12 +93,10 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
         }
       }
     }
-
-    // initialise shedding shares
-    sheddingShares = new Metrics(groupName, "shares", inputTypes.length * outputTypes.length + 1);
-    for (String inputType : inputTypes) {
-      for (String outType : outputTypes) {
-        sheddingShares.put(outType + "_" + inputType, 0.);
+    sheddingRates = new Metrics(operator.name, "shares", operator.outputTypes.length * operator.inputTypes.length + 1);
+    for (String lambdaKey : operator.inputTypes) {
+      for (String ptimeKey : operator.outputTypes) {
+        sheddingRates.put(ptimeKey + "_" + lambdaKey, 0.);
       }
     }
   }
@@ -126,7 +108,7 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
    * @param whereTo     Output channel where the events are to be forwarded to
    * @return A reference to this instance.
    */
-  public FSMOperator setSideOutput(String patternName, MeasurementOutput whereTo) {
+  public LocalOperator setSideOutput(String patternName, MeasurementOutput whereTo) {
     int size = operator.patterns.length;
     if (extraOutputs == null) {
       extraOutputs = new HashMap<>(size);
@@ -142,7 +124,7 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
    * @param whereTo Output channel where the metrics are to be forwarded to
    * @return A reference to this instance.
    */
-  public FSMOperator setMetricsOutput(String metric, MetricsOutput whereTo) {
+  public LocalOperator setMetricsOutput(String metric, MetricsOutput whereTo) {
     switch (metric) {
       case "lambdaOut": {
         outputRates = whereTo;
@@ -169,7 +151,7 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
    * updates the processing time as well as the processing and output rates.
    *
    * @param value The stream element
-   * @param ctx   A {@link Context} that allows querying the timestamp of the element, querying the
+   * @param ctx   A {@link KeyedCoProcessFunction.Context} that allows querying the timestamp of the element, querying the
    *              TimeDomain of the firing timer and getting a TimerService for registering
    *              timers and querying the time. The context is only valid during the invocation of this
    *              method, do not store it.
@@ -177,11 +159,12 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
    * @throws Exception Error in the flink's thread execution.
    */
   @Override
-  public void processElement1(Measurement value, KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
+  public void processElement(Measurement value, ProcessFunction<Measurement, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
 
     LocalTime begin = LocalTime.now();
     for (EventPattern pattern : operator.patterns) {
-      boolean dropPattern = isShedding && sheddingShares.get(pattern.name + "_" + value.type) > Math.random();
+      boolean dropPattern = isShedding && sheddingRates.get(pattern.name + "_" + value.type) > Math.random();
+
       LocalTime start = LocalTime.now();
 
       if (!dropPattern) {
@@ -204,11 +187,66 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
     if (processingTimesMeasurer.isReady()) {
       updateAndForward(processingTimesMeasurer, processingTimes, ctx);
       updateAndForward(processingRateMeasurer, processingRates, ctx);
-      opLog.info(String.format("{\"ptime\": %f, \"name\": \"%s\"}", processingTimesMeasurer.getNewestAverages().get("total"), operator.name));
+
+      double timeTaken = processingTimesMeasurer.getNewestAverages().get("total");
+      opLog.info(String.format("{\"ptime\": %f, \"name\": \"%s\"}", timeTaken, operator.name));
+      double upperBound = 1 / ((1 / operator.latencyBound) - processingRateMeasurer.getTotalAverageRate());
+      double lowerBound = upperBound * 0.9;
+      if (timeTaken > lowerBound) {
+        isShedding = true;
+        factor = timeTaken / lowerBound;
+        calculateSheddingRate();
+      } else {
+        isShedding = false;
+      }
     }
 
     if (outputRateMeasurer.isReady()) {
       updateAndForward(outputRateMeasurer, outputRates, ctx);
+    }
+
+  }
+
+  /**
+   * <p>
+   * Calculate the next shedding rates to be used by this operator. Shedding rates are
+   * calculated for each event type in each pattern. The proportions to share for a single
+   * event type are determined by the amount of events of this type that are processed
+   * in average per second, the total relevance of the corresponding pattern in all of
+   * an operator's output and the amount of events of this type in a pattern. We calculate:
+   * </p>
+   * <p>
+   * ShedRate_EventX_PatternY =
+   * <br>
+   * (processingRateOfX / totalProcessingRateOfEventsInY) *
+   * <br>
+   * (1 / amountOfEventsOfTypeXinPatternY) *
+   * <br>
+   * (outputRatesOfY / totalOutputRates)
+   * </p>
+   */
+  public void calculateSheddingRate() {
+    Metrics mus = processingRateMeasurer.getLatestAverages();
+//    Metrics ptimes = processingTimesMeasurer.getLatestAverages();
+    Metrics lambdaOuts = outputRateMeasurer.getLatestAverages();
+    for (EventPattern eventPattern : operator.patterns) {
+      Map<String, Integer> weights = eventPattern.getWeightMaps();
+//      double minimum = mus.getWeightedMinimum(weights);
+      double sum = 0.;
+      for (String types : weights.keySet()) {
+        sum += mus.get(types);
+      }
+      String patternKey = eventPattern.name;
+      for (String inputType : operator.inputTypes) {
+        double value;
+        if (!weights.containsKey(inputType)) {
+          value = 1;
+        } else {
+          value = Math.min(1,
+            factor * (mus.get(inputType) / (weights.get(inputType) * sum)) * (lambdaOuts.get(patternKey) / lambdaOuts.get("total")));// * (ptimes.get(patternKey) / ptimes.get("total")));
+        }
+        sheddingRates.put(eventPattern.name + "_" + inputType, value);
+      }
     }
   }
 
@@ -224,56 +262,6 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
     Metrics currentMetrics = measurer.getNewestAverages();
     if (metricsOutput != null) {
       ctx.output(metricsOutput, currentMetrics);
-    }
-  }
-
-  /**
-   * Sends the newest calculated metrics to coordinator if it receives a sos-message (snap)
-   * or updates its own shedding rates if the message receive contains this operator's name.
-   * Informs this operator's analyser that shedding has been activated/deactivated.
-   *
-   * @param value The stream element
-   * @param ctx   A {@link Context} that allows querying the timestamp of the element, querying the
-   *              TimeDomain of the firing timer and getting a TimerService for registering
-   *              timers and querying the time. The context is only valid during the invocation of this
-   *              method, do not store it.
-   * @param out   The collector to emit resulting elements to
-   * @throws Exception
-   */
-  @Override
-  public void processElement2(String value, KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
-    int index = value.indexOf(":");
-    String message = value.substring(0, index);
-    if (message.equals("snap")) {
-      String sosMessageId = value.substring(index + 1);
-
-      //TODO send load shares and all metrics together
-      ctx.output(sosOutput, outputRateMeasurer.getMetricsWithId(sosMessageId));
-      ctx.output(sosOutput, processingRateMeasurer.getMetricsWithId(sosMessageId));
-      ctx.output(sosOutput, processingTimesMeasurer.getMetricsWithId(sosMessageId));
-
-    } else if (message.equals(operator.name)) {
-      boolean sharesAreAllZero = true;
-      for (String share : value.substring(index + 1).split(":")) {
-        int separationIndex = share.indexOf("|");
-        String currentShare = share.substring(separationIndex + 1);
-        if (sharesAreAllZero && !currentShare.equals("0.0")) {
-          sharesAreAllZero = false;
-        }
-        sheddingShares.put(share.substring(0, separationIndex), Double.valueOf(currentShare));
-      }
-      boolean informAnalyser = !sharesAreAllZero || isShedding;
-      if (sharesAreAllZero) {
-        isShedding = false;
-        sheddingShares.put("shedding", Double.NEGATIVE_INFINITY);
-      } else if (!isShedding) {
-        isShedding = true;
-        sheddingShares.put("shedding", Double.POSITIVE_INFINITY);
-      }
-      sheddingShares.put("batch", (double) processingTimesMeasurer.batch);
-      if (informAnalyser) {
-        ctx.output(processingTimes, sheddingShares);
-      }
     }
   }
 }

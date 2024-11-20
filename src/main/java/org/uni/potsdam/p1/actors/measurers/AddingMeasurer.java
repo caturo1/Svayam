@@ -33,7 +33,8 @@ public class AddingMeasurer extends Measurer<Long> {
   }
 
   /**
-   * Adds the total processing time taken to process an event at an operator
+   * Adds the total processing time taken to process an event at an operator in nanoseconds
+   * to the running queue.
    *
    * @param begin Time when the event started being processed in the first pattern
    * @param end   Time when the event stopped being processed in the last pattern
@@ -93,6 +94,10 @@ public class AddingMeasurer extends Measurer<Long> {
 
       }
     }
+  }
+
+  public double getNewestTime() {
+    return Optional.ofNullable(runningQueue.peekLast()).orElse(0L) / 1E9;
   }
 
   @Override

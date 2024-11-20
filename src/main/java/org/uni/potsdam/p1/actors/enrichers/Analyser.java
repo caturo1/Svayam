@@ -5,11 +5,8 @@ import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.util.Collector;
-import org.uni.potsdam.p1.types.EventPattern;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
-
-import java.util.Map;
 
 /**
  * This class analyses the stream characteristics of an operator. It consumes the
@@ -118,58 +115,13 @@ public class Analyser extends KeyedProcessFunction<Double, Metrics, Metrics> {
     double bound = operator.latencyBound;
     if (lastAverage != 0.) {
       if ((calculatedP > bound || (ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > bound) || (isShedding && B < bound)) {
-        if (global) {
-          informCoordinator(value.name, out);
-        } else {
-          forwardSheddingRates(operator, lambdaIns, out);
-        }
-      } else if (!global && isShedding) {
-        out.collect(sheddingRates.withZeroedValues());
-        isShedding = false;
+        informCoordinator(value.name, out);
       }
     }
     lastAverage = calculatedP;
     lastPtime = ptimes.get("total");
     lastLambda = total;
     metricsState.clear();
-  }
-
-  /**
-   * Marks this instance for local load shedding.
-   */
-  public void setLocal() {
-    global = false;
-  }
-
-  /**
-   * Calculates the shedding rates of an operator locally and forwards it to the main
-   * output channel of this operator.
-   */
-  private void forwardSheddingRates(OperatorInfo operator, Metrics lambdaIns, Collector<Metrics> out) {
-    for (EventPattern eventPattern : operator.patterns) {
-      Map<Integer, Integer> weights = eventPattern.getWeightMaps();
-      double factor = eventPattern.getType().equals("OR") ? lambdaIns.getWeightedSum(weights) : lambdaIns.getWeightedMinimum(weights);
-      fillSheddingShares(factor, eventPattern, lambdaIns);
-    }
-    if (!isShedding) {
-      isShedding = true;
-    }
-    out.collect(sheddingRates);
-  }
-
-  /**
-   * For local load shedding.
-   * Updates the load shedding share for each input type and for each pattern.
-   *
-   * @param factor       Multiplication factor specific for each pattern Type.
-   * @param eventPattern Pattern for which the load shedding shares are being calculated.
-   * @param lambdaIns    Input rates of this operator.
-   */
-  private void fillSheddingShares(double factor, EventPattern eventPattern, Metrics lambdaIns) {
-    for (String inputType : operator.inputTypes) {
-      double value = factor > 0 ? Math.abs(1 - (lambdaIns.get(inputType) / factor)) : factor;
-      sheddingRates.put(eventPattern.name + "_" + inputType, value);
-    }
   }
 
   /**
