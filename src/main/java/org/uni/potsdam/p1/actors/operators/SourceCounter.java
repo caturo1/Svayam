@@ -56,6 +56,7 @@ public class SourceCounter extends KeyedCoProcessFunction<Long, Measurement, Str
   public SourceCounter(OperatorInfo operator) {
     inputRateMeasurer = new CountingMeasurer(operator.name, operator.inputTypes, "lambdaIn", operator.controlBatchSize);
     this.name = operator.name;
+    this.sourceName = "s" + name.replaceAll("[^\\d]", "");
   }
 
   // measure output rates; forward source events to the operator

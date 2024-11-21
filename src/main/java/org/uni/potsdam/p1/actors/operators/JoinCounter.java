@@ -2,8 +2,6 @@ package org.uni.potsdam.p1.actors.operators;
 
 import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.util.Collector;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.uni.potsdam.p1.actors.measurers.CountingMeasurer;
 import org.uni.potsdam.p1.types.Measurement;
 import org.uni.potsdam.p1.types.OperatorInfo;
@@ -19,9 +17,6 @@ import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
  * {@link JoinCounter#setMetricsOutput(String, MetricsOutput)} method.
  */
 public class JoinCounter extends ProcessFunction<Measurement, Measurement> {
-
-  // define logger for data analytics
-  private final Logger joinLog = LoggerFactory.getLogger("joinLog");
 
   // define outputTags for the side-outputs
   MetricsOutput inputRates;
@@ -45,7 +40,6 @@ public class JoinCounter extends ProcessFunction<Measurement, Measurement> {
     if (inputRateMeasurer.isReady() && inputRates != null) {
       ctx.output(inputRates, inputRateMeasurer.getNewestAverages());
     }
-    joinLog.info(value.toJson(value.getTypeAsKey()));
   }
 
   /**
