@@ -102,14 +102,14 @@ public class GlobalJob extends Settings {
       .process(new FSMOperator(OPERATORS[2])
         .setMetricsOutput("ptime", toAnalyser3)
         .setMetricsOutput("sos", toCoordinator))
-      .slotSharingGroup("ox")
+      .slotSharingGroup("o3")
       .name("Operator3");
 
     SingleOutputStreamOperator<Measurement> operator4 = simpleConnect(counter4, global)
       .process(new FSMOperator(OPERATORS[3])
         .setMetricsOutput("ptime", toAnalyser4)
         .setMetricsOutput("sos", toCoordinator))
-      .slotSharingGroup("ox")
+      .slotSharingGroup("o4")
       .name("Operator4");
 
     // connect the stream of input rates with the stream of processing times for each operator, analyse their characteristics and contact the coordinator if necessary
@@ -134,7 +134,7 @@ public class GlobalJob extends Settings {
         .union(operator3.getSideOutput(toAnalyser3))
         .keyBy(map -> map.get("batch"))
         .process(new Analyser(OPERATORS[2]))
-        .slotSharingGroup("an")
+        .slotSharingGroup("o3")
         .name("Analyser3");
 
     SingleOutputStreamOperator<Metrics> analyser4 =
@@ -142,7 +142,7 @@ public class GlobalJob extends Settings {
         .union(operator4.getSideOutput(toAnalyser4))
         .keyBy(map -> map.get("batch"))
         .process(new Analyser(OPERATORS[3]))
-        .slotSharingGroup("an")
+        .slotSharingGroup("o4")
         .name("Analyser4");
 
     // gather the outputs of all actors relevant to the coordinator
