@@ -204,7 +204,7 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
     if (processingTimesMeasurer.isReady()) {
       updateAndForward(processingTimesMeasurer, processingTimes, ctx);
       updateAndForward(processingRateMeasurer, processingRates, ctx);
-      opLog.info(String.format("{\"ptime\": %f, \"name\": \"%s\"}", processingTimesMeasurer.getNewestAverages().get("total"), operator.name));
+      opLog.info(String.format("{\"ptime\": %f, \"time\": %d, \"name\": \"%s\"}", processingTimesMeasurer.getNewestAverages().get("total"), System.currentTimeMillis(), operator.name));
     }
 
     if (outputRateMeasurer.isReady()) {
@@ -263,12 +263,14 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
         sheddingShares.put(share.substring(0, separationIndex), Double.valueOf(currentShare));
       }
       boolean informAnalyser = !sharesAreAllZero || isShedding;
-      if (sharesAreAllZero) {
+      if (isShedding && sharesAreAllZero) {
         isShedding = false;
         sheddingShares.put("shedding", Double.NEGATIVE_INFINITY);
+        opLog.info(operator.getSheddingInfo(isShedding));
       } else if (!isShedding) {
         isShedding = true;
         sheddingShares.put("shedding", Double.POSITIVE_INFINITY);
+        opLog.info(operator.getSheddingInfo(isShedding));
       }
       sheddingShares.put("batch", (double) processingTimesMeasurer.batch);
       if (informAnalyser) {

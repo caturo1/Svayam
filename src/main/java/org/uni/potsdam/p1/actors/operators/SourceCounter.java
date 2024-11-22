@@ -22,7 +22,8 @@ import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
 public class SourceCounter extends KeyedCoProcessFunction<Long, Measurement, String, Measurement> {
 
   // define logger for data analytics
-  private final Logger sourceLog = LoggerFactory.getLogger("sourceLog");
+  private Logger sourceLog;
+  boolean isLogging = false;
 
   // define outputTags for the side-outputs
   MetricsOutput inputRates;
@@ -45,7 +46,6 @@ public class SourceCounter extends KeyedCoProcessFunction<Long, Measurement, Str
     inputRates = output;
     this.sosOutput = sosOutput;
     this.name = operator.name;
-    this.sourceName = "s" + name.replaceAll("[^\\d]", "");
   }
 
   /**
@@ -56,7 +56,6 @@ public class SourceCounter extends KeyedCoProcessFunction<Long, Measurement, Str
   public SourceCounter(OperatorInfo operator) {
     inputRateMeasurer = new CountingMeasurer(operator.name, operator.inputTypes, "lambdaIn", operator.controlBatchSize);
     this.name = operator.name;
-    this.sourceName = "s" + name.replaceAll("[^\\d]", "");
   }
 
   // measure output rates; forward source events to the operator
@@ -67,7 +66,9 @@ public class SourceCounter extends KeyedCoProcessFunction<Long, Measurement, Str
     if (inputRateMeasurer.isReady()) {
       ctx.output(inputRates, inputRateMeasurer.getNewestAverages());
     }
-    sourceLog.info(value.toJson(sourceName));
+    if (isLogging) {
+      sourceLog.info(value.toJson(sourceName));
+    }
   }
 
   // send output rates to coordinator if a sos-message is received from the kafka channel
@@ -79,6 +80,12 @@ public class SourceCounter extends KeyedCoProcessFunction<Long, Measurement, Str
       String sosMessageId = value.substring(index + 1);
       ctx.output(sosOutput, inputRateMeasurer.getMetricsWithId(sosMessageId));
     }
+  }
+
+  public SourceCounter withLogging(String name) {
+    sourceLog = LoggerFactory.getLogger("opLog");
+    this.sourceName = name;
+    return this;
   }
 
   /**

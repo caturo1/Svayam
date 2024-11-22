@@ -39,8 +39,8 @@ public class Metrics implements Serializable {
   @Override
   public String toString() {
 //    return "{ \"type\": " + type + ", \"time\": " + eventTime + "}";
-//    return name + map.toString();
-    return map.toString();
+    return name + " " + description + " " + map.toString();
+//    return map.toString();
   }
 
   public void put(String key, Double value) {

@@ -32,7 +32,6 @@ public class EventPattern implements Serializable {
   public int timeWindow;
   boolean wasVisited;
   public Map<String, Integer> weightMap;
-  int numberOfParameters = 0;
 
   /**
    * Necessary empty constructor for Flink-serialization
@@ -54,6 +53,7 @@ public class EventPattern implements Serializable {
     this.name = name;
     this.type = type;
     this.downstreamOperators = downstreamOperators;
+    getWeightMaps();
   }
 
   /**
@@ -65,9 +65,7 @@ public class EventPattern implements Serializable {
    * @param downstreamOperators Operators that receive this pattern upon its detection.
    */
   private EventPattern(String name, String type, int timeWindow, String... downstreamOperators) {
-    this.name = name;
-    this.type = type;
-    this.downstreamOperators = downstreamOperators;
+    this(name, type, downstreamOperators);
     this.timeWindow = timeWindow;
   }
 
@@ -105,7 +103,8 @@ public class EventPattern implements Serializable {
   /**
    * Returns a map with the weights assigned to each parameter. In AND or OR patterns this
    * will always be 1. In SEQ patterns this will be defined during the pattern creation
-   * for each individual parameter.
+   * for each individual parameter. It corresponds to the amount of events pro event
+   * type in this pattern.
    *
    * @return The map object linking the input types to their frequency in the pattern.
    */
@@ -115,19 +114,20 @@ public class EventPattern implements Serializable {
       String kind = type.substring(0, separator);
       String[] split = type.substring(separator + 1).split(":");
       if (kind.matches("(AND|OR)")) {
-        weightMap = Arrays.stream(split).collect(Collectors.toMap(
+        weightMap = Arrays.stream(split).distinct().collect(Collectors.toMap(
           value -> value, value -> 1));
       } else if (kind.equals("SEQ")) {
         weightMap = Arrays.stream(split)
-          .collect(Collectors.toMap(
-            (String string) -> string.substring(0, string.indexOf("|")),
-            (String string) -> Integer.parseInt(string.substring(string.indexOf("|") + 1))
-          ));
+          .collect(Collectors.groupingBy(
+              (String string) -> string.substring(0, string.indexOf("|")),
+              Collectors.mapping(
+                (String string) -> Integer.parseInt(string.substring(string.indexOf("|") + 1)),
+                Collectors.reducing(0, Integer::sum)
+              )
+            )
+          );
       } else {
-        throw new IllegalStateException("Unknown Pattern type used.");
-      }
-      for (Integer value : weightMap.values()) {
-        numberOfParameters += value;
+        throw new IllegalArgumentException("False kind of EventPattern type given. Please use AND, SEQ or OR.");
       }
     }
     return weightMap;
@@ -205,7 +205,4 @@ public class EventPattern implements Serializable {
     return new EventPattern(name, "OR:" + parameters, timeWindow, downstreamOperators);
   }
 
-  public int getNumberOfParameters() {
-    return numberOfParameters;
-  }
 }

@@ -217,4 +217,8 @@ public class OperatorInfo implements Serializable {
     return this;
   }
 
+  public String getSheddingInfo(boolean isShedding) {
+    return "{ \"isShedding\": " + isShedding + ", \"time\": " + System.currentTimeMillis() + ", \"name\": \"" + name + "\"}";
+  }
+
 }

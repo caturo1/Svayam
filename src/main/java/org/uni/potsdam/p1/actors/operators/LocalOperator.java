@@ -190,14 +190,17 @@ public class LocalOperator extends ProcessFunction<Measurement, Measurement> {
 
       double timeTaken = processingTimesMeasurer.getNewestAverages().get("total");
       opLog.info(String.format("{\"ptime\": %f, \"name\": \"%s\"}", timeTaken, operator.name));
-      double upperBound = 1 / ((1 / operator.latencyBound) - processingRateMeasurer.getTotalAverageRate());
+      // double upperBound = 1 / ((1 / operator.latencyBound) - processingRateMeasurer.getTotalAverageRate());
+      double upperBound = 1 / ((1 / operator.latencyBound) + processingRateMeasurer.getTotalAverageRate());
       double lowerBound = upperBound * 0.9;
       if (timeTaken > lowerBound) {
         isShedding = true;
         factor = timeTaken / lowerBound;
         calculateSheddingRate();
+        opLog.info(operator.getSheddingInfo(isShedding));
       } else {
         isShedding = false;
+        opLog.info(operator.getSheddingInfo(isShedding));
       }
     }
 
