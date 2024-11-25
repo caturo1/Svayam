@@ -40,12 +40,12 @@ import org.uni.potsdam.p1.types.OperatorInfo;
 public abstract class Settings {
 
   // GENERAL JOB INFORMATION
-  public static final int RECORDS_PER_SECOND = 100;
-  public static final int CONTROL_BATCH_SIZE = 100;
-  public static final int BATCH_SIZE = 10_000;
+  public static final int RECORDS_PER_SECOND = 2297;
+  public static final int CONTROL_BATCH_SIZE = 4000;
+  public static final int BATCH_SIZE = 5_000_000;
   public static final double LATENCY_BOUND = 0.00055;
   public static final int TIME_WINDOW = 10;
-  public static final boolean GLOBAL_SCOPE = true;
+  public static final boolean GLOBAL_SCOPE = false;
 
   public static final Source[] SOURCES = new Source[]{
     new Source().withName("s1")
@@ -67,8 +67,8 @@ public abstract class Settings {
       .withControlBatchSize(CONTROL_BATCH_SIZE)
       .withLatencyBound(LATENCY_BOUND)
       .withPatterns(
-      EventPattern.SEQ("11", "0|2:1|1", TIME_WINDOW, "o3", "o5"),
-      EventPattern.AND("12", "1:2:3", TIME_WINDOW, "o4", "o5"))
+      EventPattern.SEQ("11", "0|2:1|1", TIME_WINDOW, "o3"),
+      EventPattern.AND("12", "1:2:3", TIME_WINDOW, "o4"))
     ,
 
     new OperatorInfo().withName("o2")
@@ -76,8 +76,8 @@ public abstract class Settings {
       .withControlBatchSize(CONTROL_BATCH_SIZE)
       .withLatencyBound(LATENCY_BOUND)
       .withPatterns(
-      EventPattern.SEQ("21", "0|2:1|1", TIME_WINDOW, "o3", "o5"),
-      EventPattern.AND("22", "1:2:3", TIME_WINDOW, "o4", "o5"))
+      EventPattern.SEQ("21", "0|2:1|1", TIME_WINDOW, "o3"),
+      EventPattern.AND("22", "1:2:3", TIME_WINDOW, "o4"))
     ,
 
     new OperatorInfo().withName("o3")
@@ -95,15 +95,6 @@ public abstract class Settings {
       .withLatencyBound(LATENCY_BOUND)
       .withPatterns(
         EventPattern.AND("2000", "12:22", TIME_WINDOW))
-      .toSink()
-    ,
-
-    new OperatorInfo().withName("o5")
-      .withInputTypes("11", "12", "21", "22")
-      .withControlBatchSize(CONTROL_BATCH_SIZE)
-      .withLatencyBound(LATENCY_BOUND)
-      .withPatterns(
-        EventPattern.AND("3000", "11:12:22:21", TIME_WINDOW))
       .toSink()
   };
 
