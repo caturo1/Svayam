@@ -61,7 +61,7 @@ public class GlobalOperatorGroup extends AbstractOperatorGroup {
 
     counter = new SourceCounter(operatorInfo)
       .setMetricsOutput("lambdaIn", toThisAnalyser)
-      .withLogging("uff");
+      .withLogging(operatorInfo.name);
 
     operator = new FSMOperator(operatorInfo)
       .setMetricsOutput("ptime", toThisAnalyser);
@@ -106,19 +106,19 @@ public class GlobalOperatorGroup extends AbstractOperatorGroup {
     counterDataStream =
       Settings.simpleConnect(inputDataStreams, global)
         .process(counter)
-        .slotSharingGroup(opName)
+//        .slotSharingGroup(opName)
         .name("Counter_" + opName);
 
     outputDataStream = Settings.simpleConnect(counterDataStream, global)
       .process(operator)
-      .slotSharingGroup(opName)
+//      .slotSharingGroup(opName)
       .name("Operator_" + opName);
 
     analyserStream = counterDataStream.getSideOutput(toThisAnalyser)
       .union(outputDataStream.getSideOutput(toThisAnalyser))
       .keyBy(map -> map.get("batch"))
       .process(analyser)
-      .slotSharingGroup(opName)
+//      .slotSharingGroup(opName)
       .name("Analyser_" + opName);
 
   }
