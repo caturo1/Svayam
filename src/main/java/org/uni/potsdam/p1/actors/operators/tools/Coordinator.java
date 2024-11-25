@@ -111,7 +111,7 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
       // declare solver
       MPSolver solver = MPSolver.createSolver("GLOP");
 
-      List<MPVariable> sinksList = new ArrayList<>(sinkOperators.size());
+      Map<String, MPVariable> sinksList = new HashMap<>(sinkOperators.size());
       Map<String, MPVariable> patternsDvs = new HashMap<>(operatorsList.length * overloadedOperatorInfo.patterns.length);
       Deque<OperatorInfo> nodeQueue = new ArrayDeque<>(operatorsList.length);
       nodeQueue.offer(overloadedOperatorInfo);
@@ -165,10 +165,8 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
 
         // fetch current operator
         OperatorInfo currentNode = nodeQueue.poll();
-        if (nodeQueue.contains(currentNode)) {
-          continue;
-        }
         boolean isOverloadedOp = currentNode == overloadedOperatorInfo;
+        Map<String, OperatorInfo> newNodes = new HashMap<>();
         // iterate through patterns
         for (EventPattern currentPattern : currentNode.patterns) {
 
@@ -179,16 +177,16 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
            * Create decision variable y-dv for this pattern - it is bounded by the total
            * processing rates of this operator (output constraint)
            */
+          String currentType = currentPattern.getType();
+          boolean isOr = currentType.equals("OR");
           MPVariable patternYDv = solver.makeNumVar(0, currentNode.getValue("mu", "total"), currentNode.name + "_" + currentPattern.name);
-          boolean isOr = currentPattern.getType().equals("OR");
 
           // iterate through the input types of this operator
           for (String inputType : weights.keySet()) {
-
             /*
              * Set constraint bounds:
              *  1) Operator is overloaded:
-             *      AND/SEQ/ID:
+             *      AND/SEQ:
              *           y_out <= ( 1 - x_in) * lambdaIn * (1 / eventsInPattern)
              *        => y_out * eventsInPattern + x_in * lambdaIn <= lambdaIn
              *      OR:
@@ -198,7 +196,7 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
              *  2) Operator is not overloaded and there is no decision variable for this
              *     input type ( input type doesn't originate from an operator in the tree
              *     being traversed).
-             *      AND/SEQ/ID:
+             *      AND/SEQ:
              *           y_out <= lambdaIn
              *      OR:
              *           y_out >= lambdaIn
@@ -206,7 +204,7 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
              *  3) Operator is not overloaded and there is a decision variable for this
              *     input type ( input type originate from an operator in the tree being
              *     traversed).
-             *      AND/SEQ/ID:
+             *      AND/SEQ:
              *           y_out <= y_in * lambdaIn * (1 / eventsInPattern)
              *        => y_out * eventsInPattern - y_in * lambdaIn <= 0
              *      OR:
@@ -249,18 +247,19 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
               String variableName = downStreamPatternName + "_" + currentPattern.name;
               patternsDvs.put(variableName, patternYDv);
             }
-            nodeQueue.add(downStreamOp);
+            newNodes.put(downStreamOpName, downStreamOp);
           }
 
           if (currentNode.isSinkOperator) {
-            sinksList.add(patternYDv);
+            sinksList.put(currentNode.name, patternYDv);
           }
         }
+        nodeQueue.addAll(newNodes.values());
       }
 
       // set objective function - this sets the maximization objective of the function (we want to maximize the sum of all sinks' outputs)
       MPObjective objective = solver.objective();
-      sinksList.forEach(dv -> objective.setCoefficient(dv, 1));
+      sinksList.values().forEach(dv -> objective.setCoefficient(dv, 1));
       objective.setMaximization();
 
       // solve LP
@@ -284,7 +283,7 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
       output.append("\nResults: ").append(results);
       output.append("\nSolution: ").append(objective.value());
       output.append("\nSinks: \n");
-      sinksList.forEach(dv -> output.append(dv.name()).append(": ").append(dv.solutionValue()).append("\n"));
+      sinksList.values().forEach(dv -> output.append(dv.name()).append(": ").append(dv.solutionValue()).append("\n"));
       output.append("\nDvs: \n");
       patternsDvs.forEach((key, value1) -> output.append(value1.name()).append(": ").append(value1.solutionValue()).append("\n"));
       output.append("\nConstraints: \n");
