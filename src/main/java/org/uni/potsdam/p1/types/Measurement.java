@@ -31,10 +31,25 @@ public class Measurement implements Serializable {
   }
 
   /**
-   * Constructor for debugging
+   * Constructs a new event of a given type for given predetermined event types
+   *
+   * @param types different possible event types
    */
-  public Measurement(int id, String message, int tab) {
-    type = id;
+  public Measurement(int[] types) {
+    this(types[(int) (Math.random() * types.length)]);
+  }
+
+  /**
+   * Constructs a new event of a given type in a given range
+   *
+   * @param lowerBound lowest event type possible
+   * @param upperBound highest event type possible
+   */
+  public Measurement(int lowerBound, int upperBound) {
+    if (upperBound < lowerBound) {
+      throw new IllegalArgumentException("UpperBound must not be greater than the lower bound");
+    }
+    this.type = lowerBound + (int) (Math.random() * (upperBound - lowerBound));
     eventTime = System.currentTimeMillis();
   }
 

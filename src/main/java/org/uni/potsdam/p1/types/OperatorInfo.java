@@ -4,13 +4,19 @@ import java.io.Serializable;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.IntStream;
 
 /**
- * <p>This class stores the basic information about an operator:</p>
+ * <p>This class stores the basic information about an operator to be used in an
+ * {@link org.uni.potsdam.p1.execution.OperatorGraph}. Instances of this class should
+ * be defined in the {@link org.uni.potsdam.p1.execution.Settings} of this project, where
+ * they are used to parse the flink-job to be executed.
+ * This class holds the following information about an operator:</p>
  * <ul>
- *   <li>Name</li>
- *   <li>Input types</li>
- *   <li>Patterns implemented</li>
+ *   <li>Name: identifying name of an operator (should be exclusive in the operator graph)</li>
+ *   <li>Input types: what event types it receives from other components (sources/operators)</li>
+ *   <li>Patterns implemented: different patterns to be detected by this operator</li>
  *   <li>Metrics:
  *   <ul>
  *     <li>input rates = lambdaIn</li>
@@ -128,11 +134,6 @@ public class OperatorInfo implements Serializable {
    */
   public void clear() {
     Arrays.fill(metrics, null);
-
-    // TODO implement the downstream navigation of the operator graph to make this method relevant
-//    for (EventPattern pattern : patterns) {
-//      pattern.clear();
-//    }
   }
 
   @Override
@@ -185,13 +186,47 @@ public class OperatorInfo implements Serializable {
   }
 
   /**
-   * Sets the input types of an OperatorInfo object to the specified value.
+   * Sets the input types of an OperatorInfo object to the specified values.
    *
    * @param types the event types represented as {@link String}
    * @return Reference to the given OperatorInfo-object
    */
   public OperatorInfo withInputTypes(String... types) {
     this.inputTypes = types;
+    return this;
+  }
+
+  /**
+   * Sets the input types of an OperatorInfo object to values contained in a given interval.
+   *
+   * @param lowerBound smallest value
+   * @param upperBound superior excluded value bond
+   * @return Reference to the given OperatorInfo-object
+   */
+  public OperatorInfo withInputTypes(int lowerBound, int upperBound) {
+    this.inputTypes = IntStream.range(lowerBound, upperBound).mapToObj(String::valueOf).toArray(String[]::new);
+    return this;
+  }
+
+  /**
+   * Sets the input types of an OperatorInfo object to the specified values.
+   *
+   * @param types the event types represented as {@link String}
+   * @return Reference to the given OperatorInfo-object
+   */
+  public OperatorInfo withInputTypes(Set<Integer> types) {
+    this.inputTypes = types.stream().map(String::valueOf).toArray(String[]::new);
+    return this;
+  }
+
+  /**
+   * Sets the input types of an OperatorInfo object to the specified values.
+   *
+   * @param types the event types represented as {@link Integer}
+   * @return Reference to the given OperatorInfo-object
+   */
+  public OperatorInfo withInputTypes(int... types) {
+    this.inputTypes = IntStream.of(types).mapToObj(String::valueOf).toArray(String[]::new);
     return this;
   }
 

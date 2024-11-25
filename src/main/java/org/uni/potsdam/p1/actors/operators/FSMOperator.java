@@ -2,26 +2,15 @@ package org.uni.potsdam.p1.actors.operators;
 
 import org.apache.flink.streaming.api.functions.co.KeyedCoProcessFunction;
 import org.apache.flink.util.Collector;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.uni.potsdam.p1.actors.measurers.AddingMeasurer;
-import org.uni.potsdam.p1.actors.measurers.CountingMeasurer;
 import org.uni.potsdam.p1.actors.measurers.Measurer;
-import org.uni.potsdam.p1.actors.processors.fsm.AndFSMProcessor;
-import org.uni.potsdam.p1.actors.processors.fsm.FSMProcessor;
-import org.uni.potsdam.p1.actors.processors.fsm.OrFSMProcessor;
-import org.uni.potsdam.p1.actors.processors.fsm.SeqFSMProcessor;
-import org.uni.potsdam.p1.types.EventPattern;
+import org.uni.potsdam.p1.actors.operators.cores.GlobalOperatorCore;
+import org.uni.potsdam.p1.actors.operators.tools.Coordinator;
+import org.uni.potsdam.p1.actors.processors.FSMProcessor;
 import org.uni.potsdam.p1.types.Measurement;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
 import org.uni.potsdam.p1.types.outputTags.MeasurementOutput;
 import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
-
-import java.time.Duration;
-import java.time.LocalTime;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * <p>
@@ -43,31 +32,11 @@ import java.util.Map;
  *
  * @see <a href=https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/learn-flink/etl/#keyed-streams">https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/learn-flink/etl/#keyed-streams</a>
  * @see <a href="https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/learn-flink/etl/#connected-streams">https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/learn-flink/etl/#connected-streams</a>
- * @see org.uni.potsdam.p1.actors.enrichers.Coordinator
+ * @see Coordinator
  */
 public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, String, Measurement> {
 
-  private final Logger opLog = LoggerFactory.getLogger("opLog");
-
-  // define outputTags for the side-outputs
-  MetricsOutput sosOutput;
-  MetricsOutput outputRates;
-  MetricsOutput processingTimes;
-  MetricsOutput processingRates;
-  Map<String, MeasurementOutput> extraOutputs;
-
-  // define the Measurers for the stream characteristics
-  CountingMeasurer outputRateMeasurer;
-  AddingMeasurer processingTimesMeasurer;
-  CountingMeasurer processingRateMeasurer;
-
-  // define sheddingShares
-  Metrics sheddingShares;
-  boolean isShedding = false;
-
-  // set additional operator information
-  OperatorInfo operator;
-  Map<String, FSMProcessor> processors;
+  GlobalOperatorCore core;
 
   /**
    * Constructs a new processor using the given operator's information as well as the
@@ -78,88 +47,32 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
    */
   public FSMOperator(OperatorInfo operator) {
 
-    // gather basic information
-    String groupName = operator.name;
-    String[] outputTypes = operator.outputTypes;
-    String[] inputTypes = operator.inputTypes;
-    int batchSize = operator.controlBatchSize;
+    core = new GlobalOperatorCore(operator);
 
-    // initialise Measurer
-    outputRateMeasurer = new CountingMeasurer(groupName, outputTypes, "lambdaOut", batchSize);
-    processingRateMeasurer = new CountingMeasurer(groupName, inputTypes, "mu", batchSize);
-    processingTimesMeasurer = new AddingMeasurer(groupName, outputTypes, "ptime", batchSize);
-
-    // reference operator's info
-    this.operator = operator;
-
-    // initialise processors for each pattern
-    processors = new HashMap<>(operator.patterns.length);
-    for (EventPattern pattern : operator.patterns) {
-      switch (pattern.getType()) {
-        case "AND": {
-          processors.put(pattern.name, new AndFSMProcessor(pattern));
-          break;
-        }
-        case "OR": {
-          processors.put(pattern.name, new OrFSMProcessor(pattern));
-          break;
-        }
-        case "SEQ": {
-          processors.put(pattern.name, new SeqFSMProcessor(pattern));
-        }
-      }
-    }
-
-    // initialise shedding shares
-    sheddingShares = new Metrics(groupName, "shares", inputTypes.length * outputTypes.length + 1);
-    for (String inputType : inputTypes) {
-      for (String outType : outputTypes) {
-        sheddingShares.put(outType + "_" + inputType, 0.);
-      }
-    }
   }
 
   /**
-   * Set a new side output for one pattern implemented by this operator
+   * Set a new side output for a downstream operator to be reached
    *
-   * @param patternName Name/Type of the pattern to be referenced
-   * @param whereTo     Output channel where the events are to be forwarded to
+   * @param operatorName Name/Type of the operators to be referenced.
+   * @param whereTo      Output channel where the events are to be forwarded to
    * @return A reference to this instance.
    */
-  public FSMOperator setSideOutput(String patternName, MeasurementOutput whereTo) {
-    int size = operator.patterns.length;
-    if (extraOutputs == null) {
-      extraOutputs = new HashMap<>(size);
-    }
-    extraOutputs.put(patternName, whereTo);
+  public FSMOperator setSideOutput(String operatorName, MeasurementOutput whereTo) {
+    core.setSideOutput(operatorName, whereTo);
     return this;
   }
 
-  /**
-   * Set a new side output for one metric calculated by this operator
-   *
-   * @param metric  Name of the metric to be referenced
-   * @param whereTo Output channel where the metrics are to be forwarded to
-   * @return A reference to this instance.
-   */
+  //
+//  /**
+//   * Set a new side output for one metric calculated by this operator
+//   *
+//   * @param metric  Name of the metric to be referenced
+//   * @param whereTo Output channel where the metrics are to be forwarded to
+//   * @return A reference to this instance.
+//   */
   public FSMOperator setMetricsOutput(String metric, MetricsOutput whereTo) {
-    switch (metric) {
-      case "lambdaOut": {
-        outputRates = whereTo;
-        break;
-      }
-      case "ptime": {
-        processingTimes = whereTo;
-        break;
-      }
-      case "mu": {
-        processingRates = whereTo;
-        break;
-      }
-      case "sos": {
-        sosOutput = whereTo;
-      }
-    }
+    core.setMetricsOutput(metric, whereTo);
     return this;
   }
 
@@ -173,58 +86,14 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
    *              TimeDomain of the firing timer and getting a TimerService for registering
    *              timers and querying the time. The context is only valid during the invocation of this
    *              method, do not store it.
-   * @param out   The collector to emit resulting elements to
+   * @param out   The collector to emit resulting elements (not utilized)
    * @throws Exception Error in the flink's thread execution.
    */
   @Override
   public void processElement1(Measurement value, KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
 
-    LocalTime begin = LocalTime.now();
-    for (EventPattern pattern : operator.patterns) {
-      boolean dropPattern = isShedding && sheddingShares.get(pattern.name + "_" + value.type) > Math.random();
-      LocalTime start = LocalTime.now();
+    core.processWithContext(value, ctx);
 
-      if (!dropPattern) {
-        Measurement measurement = processors.get(pattern.name).processElement(value);
-        if (measurement != null) {
-          outputRateMeasurer.update(pattern.name);
-          if (extraOutputs != null && extraOutputs.containsKey(pattern.name)) {
-            ctx.output(extraOutputs.get(pattern.name), measurement);
-          } else {
-            out.collect(measurement);
-          }
-          opLog.info(measurement.toJson(operator.name));
-        }
-      }
-      processingTimesMeasurer.updatePatternTime(pattern.name, Duration.between(start, LocalTime.now()).toNanos());
-    }
-    processingTimesMeasurer.updateQueue(begin, LocalTime.now());
-    processingRateMeasurer.update(value.getTypeAsKey());
-
-    if (processingTimesMeasurer.isReady()) {
-      updateAndForward(processingTimesMeasurer, processingTimes, ctx);
-      updateAndForward(processingRateMeasurer, processingRates, ctx);
-      opLog.info(String.format("{\"ptime\": %f, \"time\": %d, \"name\": \"%s\"}", processingTimesMeasurer.getNewestAverages().get("total"), System.currentTimeMillis(), operator.name));
-    }
-
-    if (outputRateMeasurer.isReady()) {
-      updateAndForward(outputRateMeasurer, outputRates, ctx);
-    }
-  }
-
-  /**
-   * Forwards the most recently calculated {@link Metrics} of a given type if it is
-   * available.
-   *
-   * @param measurer      The measurer of this metric.
-   * @param metricsOutput The side output to be used.
-   * @param ctx           The context of this operator's ProcessFunction
-   */
-  public void updateAndForward(Measurer<?> measurer, MetricsOutput metricsOutput, Context ctx) {
-    Metrics currentMetrics = measurer.getNewestAverages();
-    if (metricsOutput != null) {
-      ctx.output(metricsOutput, currentMetrics);
-    }
   }
 
   /**
@@ -238,44 +107,10 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
    *              timers and querying the time. The context is only valid during the invocation of this
    *              method, do not store it.
    * @param out   The collector to emit resulting elements to
-   * @throws Exception
+   * @throws Exception Flink's error
    */
   @Override
   public void processElement2(String value, KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
-    int index = value.indexOf(":");
-    String message = value.substring(0, index);
-    if (message.equals("snap")) {
-      String sosMessageId = value.substring(index + 1);
-
-      //TODO send load shares and all metrics together
-      ctx.output(sosOutput, outputRateMeasurer.getMetricsWithId(sosMessageId));
-      ctx.output(sosOutput, processingRateMeasurer.getMetricsWithId(sosMessageId));
-      ctx.output(sosOutput, processingTimesMeasurer.getMetricsWithId(sosMessageId));
-
-    } else if (message.equals(operator.name)) {
-      boolean sharesAreAllZero = true;
-      for (String share : value.substring(index + 1).split(":")) {
-        int separationIndex = share.indexOf("|");
-        String currentShare = share.substring(separationIndex + 1);
-        if (sharesAreAllZero && !currentShare.equals("0.0")) {
-          sharesAreAllZero = false;
-        }
-        sheddingShares.put(share.substring(0, separationIndex), Double.valueOf(currentShare));
-      }
-      boolean informAnalyser = !sharesAreAllZero || isShedding;
-      if (isShedding && sharesAreAllZero) {
-        isShedding = false;
-        sheddingShares.put("shedding", Double.NEGATIVE_INFINITY);
-        opLog.info(operator.getSheddingInfo(isShedding));
-      } else if (!isShedding) {
-        isShedding = true;
-        sheddingShares.put("shedding", Double.POSITIVE_INFINITY);
-        opLog.info(operator.getSheddingInfo(isShedding));
-      }
-      sheddingShares.put("batch", (double) processingTimesMeasurer.batch);
-      if (informAnalyser) {
-        ctx.output(processingTimes, sheddingShares);
-      }
-    }
+    core.processMessages(value, ctx);
   }
 }

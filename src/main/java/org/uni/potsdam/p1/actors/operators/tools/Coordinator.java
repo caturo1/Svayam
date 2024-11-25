@@ -1,4 +1,4 @@
-package org.uni.potsdam.p1.actors.enrichers;
+package org.uni.potsdam.p1.actors.operators.tools;
 
 import com.google.ortools.Loader;
 import com.google.ortools.linearsolver.MPConstraint;
@@ -116,16 +116,14 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
       Deque<OperatorInfo> nodeQueue = new ArrayDeque<>(operatorsList.length);
       nodeQueue.offer(overloadedOperatorInfo);
 
-      /*
-       * Create decision variables for the overloaded operator (creates x-dvs for every input type of every pattern in the range [0,1]).
-       * Define also the  time constraint -> calculate average processing time for the given
-       * snapshot and measure it against the ideal value p* (calculated with the latency bound and totalInputRate at the overloaded operator)
-       */
       int numberOfInputs = overloadedOperatorInfo.inputTypes.length;
       int numberOfPatterns = overloadedOperatorInfo.patterns.length;
       List<MPVariable> xDvList = new ArrayList<>(numberOfInputs * numberOfPatterns);
 
-      // this uses Equation 3 of the paper ( it just changes the equation to x)
+      /*
+       * Define the  time constraint -> calculate average processing time for the given
+       * snapshot and measure it against the ideal value p* (calculated with the latency bound and totalInputRate at the overloaded operator)
+       */
       double totalInputRate = overloadedOperatorInfo.getMetric("lambdaIn").get("total");
       double totalProcessingTime = overloadedOperatorInfo.getMetric("ptime").get("total");
       double p = Arrays.stream(overloadedOperatorInfo.inputTypes).map(inputType -> (overloadedOperatorInfo.getMetric("lambdaIn").get(inputType) / totalInputRate) * totalProcessingTime).reduce(0., Double::sum);
@@ -133,6 +131,10 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
       MPConstraint timeConstraint = solver.makeConstraint(p - pStar, MPSolver.infinity(), "time_constraint");
       double ptime = overloadedOperatorInfo.getMetric("ptime").get(overloadedOperatorInfo.patterns[0].name);
 
+      /*
+       * Create decision variables for the overloaded operator (creates x-dvs for every input type of every pattern in the range [0,1])
+       * and add them to the time constraint.
+       */
       String patternName = overloadedOperatorInfo.patterns[0].name;
       for (int i = 0, indexPatterns = 0; i < numberOfInputs * numberOfPatterns; i++) {
         String type = overloadedOperatorInfo.inputTypes[i % numberOfInputs];
@@ -163,6 +165,9 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
 
         // fetch current operator
         OperatorInfo currentNode = nodeQueue.poll();
+        if (nodeQueue.contains(currentNode)) {
+          continue;
+        }
         boolean isOverloadedOp = currentNode == overloadedOperatorInfo;
         // iterate through patterns
         for (EventPattern currentPattern : currentNode.patterns) {
@@ -183,7 +188,7 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
             /*
              * Set constraint bounds:
              *  1) Operator is overloaded:
-             *      AND/SEQ:
+             *      AND/SEQ/ID:
              *           y_out <= ( 1 - x_in) * lambdaIn * (1 / eventsInPattern)
              *        => y_out * eventsInPattern + x_in * lambdaIn <= lambdaIn
              *      OR:
@@ -193,7 +198,7 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
              *  2) Operator is not overloaded and there is no decision variable for this
              *     input type ( input type doesn't originate from an operator in the tree
              *     being traversed).
-             *      AND/SEQ:
+             *      AND/SEQ/ID:
              *           y_out <= lambdaIn
              *      OR:
              *           y_out >= lambdaIn
@@ -201,7 +206,7 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
              *  3) Operator is not overloaded and there is a decision variable for this
              *     input type ( input type originate from an operator in the tree being
              *     traversed).
-             *      AND/SEQ:
+             *      AND/SEQ/ID:
              *           y_out <= y_in * lambdaIn * (1 / eventsInPattern)
              *        => y_out * eventsInPattern - y_in * lambdaIn <= 0
              *      OR:
@@ -261,12 +266,14 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
       // solve LP
       MPSolver.ResultStatus results = solver.solve();
 
-      //TODO add logic to handle infeasible configuration
-
       // append solution values for all x-dvs, serialize them and forward them to the overloaded operator
       StringBuilder output = new StringBuilder();
       output.append(overloadedOperatorInfo.name).append(":");
-      xDvList.forEach(xDv -> output.append(xDv.name()).append("|").append(xDv.solutionValue()).append(":"));
+      if (results != MPSolver.ResultStatus.OPTIMAL) {
+        xDvList.forEach(xDv -> output.append(xDv.name()).append("|").append(1).append(":"));
+      } else {
+        xDvList.forEach(xDv -> output.append(xDv.name()).append("|").append(xDv.solutionValue()).append(":"));
+      }
       ctx.output(sosOutput, output.toString());
 
       /*

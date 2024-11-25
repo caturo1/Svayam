@@ -1,4 +1,4 @@
-package org.uni.potsdam.p1.actors.enrichers;
+package org.uni.potsdam.p1.actors.operators.tools;
 
 import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.api.common.state.ValueState;
@@ -72,7 +72,7 @@ public class Analyser extends KeyedProcessFunction<Double, Metrics, Metrics> {
    *              TimerService for registering timers and querying the time. The context is only
    *              valid during the invocation of this method, do not store it.
    * @param out   The collector for returning result values.
-   * @throws Exception
+   * @throws Exception Flink's error
    */
   @Override
   public void processElement(Metrics value, KeyedProcessFunction<Double, Metrics, Metrics>.Context ctx, Collector<Metrics> out) throws Exception {

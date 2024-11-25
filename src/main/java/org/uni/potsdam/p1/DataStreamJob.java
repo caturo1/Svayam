@@ -18,19 +18,21 @@
 
 package org.uni.potsdam.p1;
 
-import org.uni.potsdam.p1.actors.jobs.LocalJob;
+import org.uni.potsdam.p1.execution.OperatorGraph;
 
 
 /**
  * <p>
- * This class executes a Flink-Query (either a {@link LocalJob} or a
- * {@link org.uni.potsdam.p1.actors.jobs.GlobalJob}
+ * This class executes a Flink-Query defined in the {@link org.uni.potsdam.p1.execution.Settings}
+ * class and parsed and executed by an {@link OperatorGraph}. Please define your sources,
+ * operators and job-execution details in the {@link org.uni.potsdam.p1.execution.Settings}
+ * class.
  * </p>
  */
 public class DataStreamJob {
 
   public static void main(String[] args) throws Exception {
-    LocalJob job = new LocalJob();
+    OperatorGraph job = new OperatorGraph();
     job.execute();
   }
 }

@@ -1,5 +1,7 @@
 package org.uni.potsdam.p1.types;
 
+import org.uni.potsdam.p1.actors.processors.FSMProcessor;
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -9,7 +11,7 @@ import java.util.concurrent.TimeUnit;
  * This class represents a basic Finite State Machine. It only implements basic logic
  * for constructing and controlling the state of a machine as well as information about
  * the {@link Measurement} instances used for its transitions. Extensions of this class
- * are to be used together with a {@link org.uni.potsdam.p1.actors.processors.fsm.FSMProcessor}
+ * are to be used together with a {@link FSMProcessor}
  * , where they are adjusted to the behavior of the processor.
  */
 public class FSM {
@@ -74,7 +76,7 @@ public class FSM {
 
   /**
    * Checks if the current state machine only need one more transition to reach its
-   * termination state. This is used in the {@link org.uni.potsdam.p1.actors.processors.fsm.FSMProcessor}
+   * termination state. This is used in the {@link FSMProcessor}
    * classes to determine matches.
    */
   public boolean finishesInOne() {
@@ -84,7 +86,7 @@ public class FSM {
 
   /**
    * Checks if the current state machine contains one or all of the Measurements specified
-   * in the given set. This is used in the {@link org.uni.potsdam.p1.actors.processors.fsm.FSMProcessor}
+   * in the given set. This is used in the {@link FSMProcessor}
    * classes to remove Finite State Machines which contain already matched events.
    *
    * @param measurement Set of events to be found.
@@ -96,7 +98,7 @@ public class FSM {
 
   /**
    * Creates a new set of measurement events using those already contained in this instance
-   * in addition to a new one. This is used in the {@link org.uni.potsdam.p1.actors.processors.fsm.FSMProcessor}
+   * in addition to a new one. This is used in the {@link FSMProcessor}
    * to create the sets of events contained in new FSMs.
    *
    * @param value New {@link Measurement} event to be added

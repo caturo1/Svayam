@@ -1,10 +1,11 @@
-package org.uni.potsdam.p1.actors.processors.fsm;
+package org.uni.potsdam.p1.actors.processors;
 
 import org.uni.potsdam.p1.types.FSM;
 import org.uni.potsdam.p1.types.Measurement;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -84,8 +85,6 @@ public abstract class FSMProcessor implements Serializable {
       }
       if (current.advancesWith(value.type)) {
         if (current.finishesInOne()) {
-//          StringBuilder output = new StringBuilder();
-//          current.participants.forEach(output::append);
           currentFSMs.removeIf(fsm -> {
             if (fsm == current) {
               return false;
@@ -94,8 +93,6 @@ public abstract class FSMProcessor implements Serializable {
           });
           currentFSMs.remove(current);
           currentFSMs.removeAll(toDelete);
-//          output.append(value);
-//          return new Measurement(patternType, output.toString(), 0);
           return new Measurement(patternType);
         }
         candidates.add(getNextFSM(current, value));
@@ -167,7 +164,7 @@ public abstract class FSMProcessor implements Serializable {
 
   @Override
   public int hashCode() {
-    return Objects.hash(currentFSMs, patternType, parameters);
+    return Objects.hash(currentFSMs, patternType, Arrays.hashCode(parameters));
   }
 
   /**

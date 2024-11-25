@@ -1,4 +1,4 @@
-package org.uni.potsdam.p1.actors.processors.fsm;
+package org.uni.potsdam.p1.actors.processors;
 
 import org.uni.potsdam.p1.types.Measurement;
 
@@ -43,9 +43,7 @@ public abstract class ComposedFSMProcessor extends FSMProcessor {
     Measurement result1 = getResult(processor1, value);
     Measurement result2 = getResult(processor2, value);
     if (applyAcceptanceCondition(result1, result2)) {
-      String result = String.valueOf(result1) +
-        result2;
-      return new Measurement(patternType, result, 0);
+      return new Measurement(patternType);
     }
     return null;
   }

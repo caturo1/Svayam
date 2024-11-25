@@ -1,4 +1,4 @@
-package org.uni.potsdam.p1.actors.processors.fsm;
+package org.uni.potsdam.p1.actors.processors;
 
 import org.uni.potsdam.p1.types.EventPattern;
 import org.uni.potsdam.p1.types.FSM;
