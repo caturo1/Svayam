@@ -29,6 +29,7 @@ public class Source {
   public int batchSize;
   public DataStream<Measurement> sourceStream;
   public String[] downstreamOperators;
+  public int recordsPerSecond = 0;
 
   /**
    * Constructs new source
@@ -93,6 +94,17 @@ public class Source {
   }
 
   /**
+   * Define amount of events to be produced per second.
+   *
+   * @param recordsPerSecond Amount of events to be produced in a second.
+   * @return Reference to this source.
+   */
+  public Source withRecordsPerSecond(int recordsPerSecond) {
+    this.recordsPerSecond = recordsPerSecond;
+    return this;
+  }
+
+  /**
    * Constructs a source directly using the given parameters.
    *
    * @param name       Name of this source.
@@ -122,14 +134,13 @@ public class Source {
   /**
    * Creates a {@link DataGeneratorSource} which will produce events in the flink environment.
    *
-   * @param recordsPerSecond Amount of events to be produced per second.
    * @return Event source for flink.
    */
-  public DataGeneratorSource<Measurement> createMeasurementSource(int recordsPerSecond) {
+  public DataGeneratorSource<Measurement> createMeasurementSource() {
     return new DataGeneratorSource<>(
       eventGenerator,
       batchSize,
-      RateLimiterStrategy.perSecond(recordsPerSecond),
+      RateLimiterStrategy.perSecond(this.recordsPerSecond),
       TypeInformation.of(Measurement.class));
   }
 
@@ -137,15 +148,12 @@ public class Source {
    * Creates a {@link DataStream} to be used in a flink-{@link StreamExecutionEnvironment}
    * to direct this source's outputs to the operators.
    *
-   * @param env              The flink's stream execution environment
-   * @param recordsPerSecond Amount of events to be produced per second.
-   * @return Stream of Measurement events created for this source.
+   * @param env The flink's stream execution environment
    */
-  public DataStream<Measurement> createDataStream(StreamExecutionEnvironment env, int recordsPerSecond) {
+  public void createDataStream(StreamExecutionEnvironment env) {
     if (sourceStream == null) {
-      sourceStream = env.fromSource(createMeasurementSource(recordsPerSecond),
+      sourceStream = env.fromSource(createMeasurementSource(),
         WatermarkStrategy.noWatermarks(), name).name(name);
     }
-    return sourceStream;
   }
 }

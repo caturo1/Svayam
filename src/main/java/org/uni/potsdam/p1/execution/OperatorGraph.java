@@ -144,7 +144,7 @@ public class OperatorGraph extends Settings {
     }
 
     for (Source source : sources.values()) {
-      source.createDataStream(env, RECORDS_PER_SECOND);
+      source.createDataStream(env);
       for (String opDownStream : source.downstreamOperators) {
         operators.get(opDownStream).addInputStream(source.sourceStream);
       }
