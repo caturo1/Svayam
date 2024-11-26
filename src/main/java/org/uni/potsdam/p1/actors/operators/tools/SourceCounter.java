@@ -3,8 +3,6 @@ package org.uni.potsdam.p1.actors.operators.tools;
 import org.apache.flink.streaming.api.functions.co.KeyedCoProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.uni.potsdam.p1.actors.measurers.CountingMeasurer;
 import org.uni.potsdam.p1.types.Measurement;
 import org.uni.potsdam.p1.types.OperatorInfo;
@@ -20,10 +18,6 @@ import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
  * {@link SourceCounter#setMetricsOutput(String, MetricsOutput)} method.
  */
 public class SourceCounter extends KeyedCoProcessFunction<Long, Measurement, String, Measurement> {
-
-  // define logger for data analytics
-  private Logger sourceLog;
-  boolean isLogging = false;
 
   // define outputTags for the side-outputs
   MetricsOutput inputRates;
@@ -66,9 +60,6 @@ public class SourceCounter extends KeyedCoProcessFunction<Long, Measurement, Str
     if (inputRateMeasurer.isReady()) {
       ctx.output(inputRates, inputRateMeasurer.getNewestAverages());
     }
-    if (isLogging) {
-      sourceLog.info(value.toJson(sourceName));
-    }
   }
 
   // send output rates to coordinator if a sos-message is received from the kafka channel
@@ -80,12 +71,6 @@ public class SourceCounter extends KeyedCoProcessFunction<Long, Measurement, Str
       String sosMessageId = value.substring(index + 1);
       ctx.output(sosOutput, inputRateMeasurer.getMetricsWithId(sosMessageId));
     }
-  }
-
-  public SourceCounter withLogging(String name) {
-    sourceLog = LoggerFactory.getLogger("opLog");
-    this.sourceName = name;
-    return this;
   }
 
   /**

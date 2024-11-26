@@ -60,8 +60,7 @@ public class GlobalOperatorGroup extends AbstractOperatorGroup {
     toThisAnalyser = new MetricsOutput("out_to_analyser_" + operatorInfo.name);
 
     counter = new SourceCounter(operatorInfo)
-      .setMetricsOutput("lambdaIn", toThisAnalyser)
-      .withLogging(operatorInfo.name);
+      .setMetricsOutput("lambdaIn", toThisAnalyser);
 
     operator = new FSMOperator(operatorInfo)
       .setMetricsOutput("ptime", toThisAnalyser);

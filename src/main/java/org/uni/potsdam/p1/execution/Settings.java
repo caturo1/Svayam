@@ -40,12 +40,13 @@ import org.uni.potsdam.p1.types.OperatorInfo;
 public abstract class Settings {
 
   // GENERAL JOB INFORMATION
-  public static final int RECORDS_PER_SECOND = 2297;
-  public static final int CONTROL_BATCH_SIZE = 4000;
-  public static final int BATCH_SIZE = 5_000_000;
+  public static final int RECORDS_PER_SECOND = 100;
+  public static final int CONTROL_BATCH_SIZE = 100;
+  public static final int BATCH_SIZE = 10_000;
   public static final double LATENCY_BOUND = 0.00055;
   public static final int TIME_WINDOW = 10;
-  public static final boolean GLOBAL_SCOPE = false;
+  public static final boolean GLOBAL_SCOPE = true;
+  public static final boolean LOG_SOURCES = true;
 
   public static final Source[] SOURCES = new Source[]{
     new Source().withName("s1")

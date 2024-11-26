@@ -16,6 +16,7 @@ import org.uni.potsdam.p1.actors.operators.groups.GlobalOperatorGroup;
 import org.uni.potsdam.p1.actors.operators.groups.LocalOperatorGroup;
 import org.uni.potsdam.p1.actors.operators.tools.Coordinator;
 import org.uni.potsdam.p1.actors.sources.Source;
+import org.uni.potsdam.p1.actors.sources.SourceLogger;
 import org.uni.potsdam.p1.types.EventPattern;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
@@ -146,6 +147,9 @@ public class OperatorGraph extends Settings {
       source.createDataStream(env, RECORDS_PER_SECOND);
       for (String opDownStream : source.downstreamOperators) {
         operators.get(opDownStream).addInputStream(source.sourceStream);
+      }
+      if (LOG_SOURCES) {
+        source.sourceStream.process(new SourceLogger(source.name));
       }
     }
 

@@ -56,7 +56,7 @@ public class LocalOperatorCore extends OperatorCore {
       updateAndForward(processingRateMeasurer, processingRates, ctx);
 
       double timeTaken = processingTimesMeasurer.getNewestAverages().get("total");
-      opLog.info(String.format("{\"ptime\": %f, \"name\": \"%s\"}", timeTaken, operator.name));
+      opLog.info(String.format("{\"ptime\": %f, \"time\": %d, \"name\": \"%s\"}", processingTimesMeasurer.getNewestAverages().get("total"), System.currentTimeMillis(), operator.name));
       double upperBound = 1 / ((1 / operator.latencyBound) + processingRateMeasurer.getTotalAverageRate());
       double lowerBound = upperBound * 0.9;
       if (timeTaken > lowerBound) {
@@ -64,7 +64,7 @@ public class LocalOperatorCore extends OperatorCore {
         factor = timeTaken / lowerBound;
         calculateSheddingRate();
         opLog.info(operator.getSheddingInfo(isShedding));
-      } else {
+      } else if (isShedding) {
         isShedding = false;
         opLog.info(operator.getSheddingInfo(isShedding));
       }
@@ -100,7 +100,6 @@ public class LocalOperatorCore extends OperatorCore {
    *              TimeDomain of the firing timer and getting a TimerService for registering
    *              timers and querying the time. The context is only valid during the invocation of this
    *              method, do not store it.
-   * @throws Exception Error in the flink's thread execution.
    */
   public void processWithContext(Measurement value, ProcessFunction<Measurement, Measurement>.Context ctx) {
     this.ctx = ctx;
