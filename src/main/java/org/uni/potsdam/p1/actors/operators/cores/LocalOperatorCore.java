@@ -60,10 +60,12 @@ public class LocalOperatorCore extends OperatorCore {
       double upperBound = 1 / ((1 / operator.latencyBound) + processingRateMeasurer.getTotalAverageRate());
       double lowerBound = upperBound * 0.9;
       if (timeTaken > lowerBound) {
-        isShedding = true;
+        if (!isShedding) {
+          isShedding = true;
+          opLog.info(operator.getSheddingInfo(isShedding));
+        }
         factor = timeTaken / lowerBound;
         calculateSheddingRate();
-        opLog.info(operator.getSheddingInfo(isShedding));
       } else if (isShedding) {
         isShedding = false;
         opLog.info(operator.getSheddingInfo(isShedding));
