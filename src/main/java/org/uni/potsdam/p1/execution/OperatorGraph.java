@@ -8,7 +8,6 @@ import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
-import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.uni.potsdam.p1.actors.operators.groups.AbstractOperatorGroup;
@@ -137,10 +136,10 @@ public class OperatorGraph extends Settings {
 
     // start execution environment
     final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-    KeyedStream<String, Integer> global;
+    DataStream<String> global;
     if (GLOBAL_SCOPE) {
       // define a keyed data stream with which the operators send their information to the coordinator
-      global = env.fromSource(globalChannelIn, WatermarkStrategy.noWatermarks(), "global").keyBy(st -> 1);
+      global = env.fromSource(globalChannelIn, WatermarkStrategy.noWatermarks(), "global");
     }
 
     for (Source source : sources.values()) {
@@ -172,7 +171,7 @@ public class OperatorGraph extends Settings {
 
       // execute coordinator
       SingleOutputStreamOperator<String> coordinatorOutput = streamToCoordinator
-        .keyBy(metric -> metric.id).process(coordinator).name("Coordinator");
+        .process(coordinator).name("Coordinator");
 
       // store shedding rates in kafka
       coordinatorOutput.getSideOutput(toKafka).sinkTo(globalChannelOut);

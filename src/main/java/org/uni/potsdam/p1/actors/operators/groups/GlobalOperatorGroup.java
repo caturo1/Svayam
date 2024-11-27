@@ -103,19 +103,18 @@ public class GlobalOperatorGroup extends AbstractOperatorGroup {
     String opName = operatorInfo.name;
 
     counterDataStream =
-      Settings.simpleConnect(inputDataStreams, global)
+      inputDataStreams.connect(global)
         .process(counter)
 //        .slotSharingGroup(opName)
         .name("Counter_" + opName);
 
-    outputDataStream = Settings.simpleConnect(counterDataStream, global)
+    outputDataStream = counterDataStream.connect(global)
       .process(operator)
 //      .slotSharingGroup(opName)
       .name("Operator_" + opName);
 
     analyserStream = counterDataStream.getSideOutput(toThisAnalyser)
       .union(outputDataStream.getSideOutput(toThisAnalyser))
-      .keyBy(map -> map.get("batch"))
       .process(analyser)
 //      .slotSharingGroup(opName)
       .name("Analyser_" + opName);

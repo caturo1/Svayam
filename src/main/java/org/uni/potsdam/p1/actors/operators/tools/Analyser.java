@@ -1,9 +1,6 @@
 package org.uni.potsdam.p1.actors.operators.tools;
 
-import org.apache.flink.api.common.functions.OpenContext;
-import org.apache.flink.api.common.state.ValueState;
-import org.apache.flink.api.common.state.ValueStateDescriptor;
-import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
+import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.util.Collector;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
@@ -18,10 +15,15 @@ import org.uni.potsdam.p1.types.OperatorInfo;
  * in the first case it suffices to connect the output of an instance of this class with
  * an operator.
  */
-public class Analyser extends KeyedProcessFunction<Double, Metrics, Metrics> {
+public class Analyser extends ProcessFunction<Metrics, Metrics> {
 
-  // define state to separate the metrics of each measurement-batch
-  ValueState<Metrics> metricsState;
+  // define latest metrics received
+  Metrics ptime;
+  long arrivalTimePtime = -1;
+  long deltaX = 0;
+
+  Metrics lambdaIn;
+  long arrivalTimeLambda = -1;
 
   // define operator's information
   OperatorInfo operator;
@@ -35,8 +37,6 @@ public class Analyser extends KeyedProcessFunction<Double, Metrics, Metrics> {
   double lastPtime = 0.;
   double lastAverage = 0.;
 
-  // differentiate global from local shedding
-  boolean global = true;
 
   /**
    * Constructs a new Analyser based on the information of a given operator.
@@ -46,16 +46,19 @@ public class Analyser extends KeyedProcessFunction<Double, Metrics, Metrics> {
   public Analyser(OperatorInfo operator) {
     this.operator = operator;
     sheddingRates = new Metrics(operator.name, "shares", operator.outputTypes.length * operator.inputTypes.length + 1);
+    lambdaIn = new Metrics(operator.name, "lambdaIn", operator.inputTypes.length + 1);
+    ptime = new Metrics(operator.name, "ptime", operator.outputTypes.length);
+    for (String ptimeKey : operator.outputTypes) {
+      ptime.put(ptimeKey, 0.);
+    }
     for (String lambdaKey : operator.inputTypes) {
+      lambdaIn.put(lambdaKey, 0.);
       for (String ptimeKey : operator.outputTypes) {
         sheddingRates.put(ptimeKey + "_" + lambdaKey, 0.);
       }
     }
-  }
-
-  @Override
-  public void open(OpenContext openContext) throws Exception {
-    metricsState = getRuntimeContext().getState(new ValueStateDescriptor<>("metricsState", Metrics.class));
+    ptime.put("total", 0.);
+    lambdaIn.put("total", 0.);
   }
 
   /**
@@ -75,53 +78,63 @@ public class Analyser extends KeyedProcessFunction<Double, Metrics, Metrics> {
    * @throws Exception Flink's error
    */
   @Override
-  public void processElement(Metrics value, KeyedProcessFunction<Double, Metrics, Metrics>.Context ctx, Collector<Metrics> out) throws Exception {
-    if (global && value.description.equals("shares")) {
-      sheddingRates = value;
-      if (!isShedding && value.get("shedding").equals(Double.POSITIVE_INFINITY)) {
-        isShedding = true;
-      } else if (isShedding && value.get("shedding").equals(Double.NEGATIVE_INFINITY)) {
-        isShedding = false;
+  public void processElement(Metrics value, ProcessFunction<Metrics, Metrics>.Context ctx, Collector<Metrics> out) throws Exception {
+    switch (value.description) {
+      case "shares": {
+        sheddingRates = value;
+        if (!isShedding && value.get("shedding").equals(Double.POSITIVE_INFINITY)) {
+          isShedding = true;
+        } else if (isShedding && value.get("shedding").equals(Double.NEGATIVE_INFINITY)) {
+          isShedding = false;
+        }
+        return;
       }
-      return;
+      case "lambdaIn": {
+        lambdaIn = value;
+        long currentTime = System.currentTimeMillis();
+        if (arrivalTimePtime == -1) {
+          arrivalTimePtime = currentTime;
+        }
+        deltaX = currentTime - arrivalTimePtime;
+        arrivalTimeLambda = currentTime;
+        break;
+      }
+      case "ptime": {
+        ptime = value;
+        long currentTime = System.currentTimeMillis();
+        if (arrivalTimeLambda == -1) {
+          arrivalTimeLambda = currentTime;
+        }
+        deltaX = currentTime - arrivalTimeLambda;
+        arrivalTimePtime = currentTime;
+      }
     }
-    if (metricsState.value() == null) {
-      metricsState.update(value);
-      return;
-    }
-    Metrics ptimes;
-    Metrics lambdaIns;
-    if (value.description.equals("ptime")) {
-      ptimes = value;
-      lambdaIns = metricsState.value();
-    } else {
-      ptimes = metricsState.value();
-      lambdaIns = value;
-    }
-    double total = lambdaIns.get("total");
+
+    double total = lambdaIn.get("total");
     double calculatedP = 0.;
     for (String key : operator.inputTypes) {
       double weight = 0;
       for (String key2 : operator.outputTypes) {
         double share = (1 - sheddingRates.get(key2 + "_" + key));
-        weight += share * ptimes.get(key2);
+        weight += share * ptime.get(key2);
       }
-      calculatedP += (lambdaIns.get(key) / (total == 0 ? 1 : total)) * weight;
+      calculatedP += (lambdaIn.get(key) / (total == 0 ? 1 : total)) * weight;
     }
-    double B = 1 / ((1 / (calculatedP == 0 ? 1 : calculatedP)) - total);
+
+    double B = (1 / ((1 / (calculatedP == 0 ? 1 : calculatedP)) - total));
     double ratio = Math.abs(1 - calculatedP / (lastAverage == 0 ? 1 : lastAverage));
-    double ratioLambda = Math.abs(1 - lambdaIns.get("total") / (lastLambda == 0 ? 1 : lastLambda));
-    double ratioPtime = Math.abs(1 - ptimes.get("total") / (lastPtime == 0 ? 1 : lastPtime));
+    double ratioLambda = Math.abs(1 - lambdaIn.get("total") / (lastLambda == 0 ? 1 : lastLambda));
+    double ratioPtime = Math.abs(1 - ptime.get("total") / (lastPtime == 0 ? 1 : lastPtime));
     double bound = operator.latencyBound;
     if (lastAverage != 0.) {
-      if ((calculatedP > bound || (ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > bound) || (isShedding && B < bound)) {
+      if ((calculatedP > bound || (ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > bound) || (isShedding && B < bound) || (deltaX / 1000. > 1)) {
         informCoordinator(value.name, out);
       }
     }
     lastAverage = calculatedP;
-    lastPtime = ptimes.get("total");
+    lastPtime = ptime.get("total");
     lastLambda = total;
-    metricsState.clear();
+
   }
 
   /**
@@ -132,9 +145,8 @@ public class Analyser extends KeyedProcessFunction<Double, Metrics, Metrics> {
    * @param out           Collector of this operator's outputs.
    */
   private void informCoordinator(String operatorsName, Collector<Metrics> out) {
-    long id = System.nanoTime();
     Metrics empty = new Metrics(operatorsName, "overloaded", 0);
-    empty.id = id;
     out.collect(empty);
   }
+
 }

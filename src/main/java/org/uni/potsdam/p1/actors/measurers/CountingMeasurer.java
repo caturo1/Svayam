@@ -98,7 +98,7 @@ public class CountingMeasurer extends Measurer<LocalTime> {
    * @return The latest {@link Metrics} instance created by this measurer with the given id.
    */
   @Override
-  public Metrics getMetricsWithId(String id) {
+  public Metrics getMetrics() {
     if (batch < 2) {
       Optional<LocalTime> oldestTimestamp = Optional.ofNullable(runningQueue.peek());
       oldestTimestamp.ifPresentOrElse(
@@ -109,7 +109,6 @@ public class CountingMeasurer extends Measurer<LocalTime> {
         }
       );
     }
-    results.id = Long.parseLong(id);
     return results;
   }
 }

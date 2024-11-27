@@ -1,8 +1,6 @@
 package org.uni.potsdam.p1.execution;
 
 import org.apache.flink.api.common.JobExecutionResult;
-import org.apache.flink.streaming.api.datastream.ConnectedStreams;
-import org.apache.flink.streaming.api.datastream.DataStream;
 import org.uni.potsdam.p1.actors.sources.Source;
 import org.uni.potsdam.p1.types.EventPattern;
 import org.uni.potsdam.p1.types.OperatorInfo;
@@ -45,9 +43,10 @@ public abstract class Settings {
   public static final int BATCH_SIZE = 10_000;
   public static final double LATENCY_BOUND = 0.00055;
   public static final int TIME_WINDOW = 10;
-  public static final boolean GLOBAL_SCOPE = false;
+  public static final boolean GLOBAL_SCOPE = true;
   public static final boolean LOG_SOURCES = true;
 
+  // define sources
   public static final Source[] SOURCES = new Source[]{
     new Source().withName("s1")
       .withBatchSize(BATCH_SIZE)
@@ -110,18 +109,4 @@ public abstract class Settings {
    */
   public abstract JobExecutionResult execute() throws Exception;
 
-
-  /**
-   * Connects two data streams together using a constant key to bind their events. All
-   * events are processed in the same keyed context.
-   *
-   * @param stream1 The first data stream
-   * @param stream2 The second data stream
-   * @param <T>     Object type of the events in the first data stream
-   * @param <R>     Object type of the events in the second data stream
-   * @return A connected stream {@link ConnectedStreams}
-   */
-  public static <T, R> ConnectedStreams<T, R> simpleConnect(DataStream<T> stream1, DataStream<R> stream2) {
-    return stream1.keyBy(me -> 1).connect(stream2);
-  }
 }

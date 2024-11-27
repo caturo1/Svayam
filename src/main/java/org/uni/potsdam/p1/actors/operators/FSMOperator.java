@@ -1,6 +1,6 @@
 package org.uni.potsdam.p1.actors.operators;
 
-import org.apache.flink.streaming.api.functions.co.KeyedCoProcessFunction;
+import org.apache.flink.streaming.api.functions.co.CoProcessFunction;
 import org.apache.flink.util.Collector;
 import org.uni.potsdam.p1.actors.measurers.Measurer;
 import org.uni.potsdam.p1.actors.operators.cores.GlobalOperatorCore;
@@ -34,7 +34,7 @@ import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
  * @see <a href="https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/learn-flink/etl/#connected-streams">https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/learn-flink/etl/#connected-streams</a>
  * @see Coordinator
  */
-public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, String, Measurement> {
+public class FSMOperator extends CoProcessFunction<Measurement, String, Measurement> {
 
   GlobalOperatorCore core;
 
@@ -90,8 +90,7 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
    * @throws Exception Error in the flink's thread execution.
    */
   @Override
-  public void processElement1(Measurement value, KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
-
+  public void processElement1(Measurement value, CoProcessFunction<Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
     core.processWithContext(value, ctx);
 
   }
@@ -110,7 +109,8 @@ public class FSMOperator extends KeyedCoProcessFunction<Long, Measurement, Strin
    * @throws Exception Flink's error
    */
   @Override
-  public void processElement2(String value, KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
+  public void processElement2(String value, CoProcessFunction<Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
     core.processMessages(value, ctx);
+
   }
 }

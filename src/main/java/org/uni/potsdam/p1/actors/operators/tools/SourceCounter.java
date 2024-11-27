@@ -1,6 +1,6 @@
 package org.uni.potsdam.p1.actors.operators.tools;
 
-import org.apache.flink.streaming.api.functions.co.KeyedCoProcessFunction;
+import org.apache.flink.streaming.api.functions.co.CoProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 import org.uni.potsdam.p1.actors.measurers.CountingMeasurer;
@@ -17,7 +17,7 @@ import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
  * function properly. This can be done using the constructor or with the
  * {@link SourceCounter#setMetricsOutput(String, MetricsOutput)} method.
  */
-public class SourceCounter extends KeyedCoProcessFunction<Long, Measurement, String, Measurement> {
+public class SourceCounter extends CoProcessFunction<Measurement, String, Measurement> {
 
   // define outputTags for the side-outputs
   MetricsOutput inputRates;
@@ -52,27 +52,6 @@ public class SourceCounter extends KeyedCoProcessFunction<Long, Measurement, Str
     this.name = operator.name;
   }
 
-  // measure output rates; forward source events to the operator
-  @Override
-  public void processElement1(Measurement value, KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
-    inputRateMeasurer.update(value.getTypeAsKey());
-    out.collect(value);
-    if (inputRateMeasurer.isReady()) {
-      ctx.output(inputRates, inputRateMeasurer.getNewestAverages());
-    }
-  }
-
-  // send output rates to coordinator if a sos-message is received from the kafka channel
-  @Override
-  public void processElement2(String value, KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
-    int index = value.indexOf(":");
-    String message = value.substring(0, index);
-    if (message.equals("snap")) {
-      String sosMessageId = value.substring(index + 1);
-      ctx.output(sosOutput, inputRateMeasurer.getMetricsWithId(sosMessageId));
-    }
-  }
-
   /**
    * Set a new side output for one metric calculated by this operator
    *
@@ -91,5 +70,45 @@ public class SourceCounter extends KeyedCoProcessFunction<Long, Measurement, Str
       }
     }
     return this;
+  }
+
+  /**
+   * Measure output rates; forward source events to the operator
+   *
+   * @param value The stream element
+   * @param ctx   A {@link Context} that allows querying the timestamp of the element, querying the
+   *              TimeDomain of the firing timer and getting a TimerService for registering
+   *              timers and querying the time. The context is only valid during the invocation of this
+   *              method, do not store it.
+   * @param out   The collector to emit resulting elements to
+   * @throws Exception Flink's exception happens
+   */
+  @Override
+  public void processElement1(Measurement value, CoProcessFunction<Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
+    inputRateMeasurer.update(value.getTypeAsKey());
+    out.collect(value);
+    if (inputRateMeasurer.isReady()) {
+      ctx.output(inputRates, inputRateMeasurer.getNewestAverages());
+    }
+  }
+
+  /**
+   * Send output rates to coordinator if a sos-message is received from the kafka channel
+   *
+   * @param value The stream element
+   * @param ctx   A {@link Context} that allows querying the timestamp of the element, querying the
+   *              TimeDomain of the firing timer and getting a TimerService for registering
+   *              timers and querying the time. The context is only valid during the invocation of this
+   *              method, do not store it.
+   * @param out   The collector to emit resulting elements to
+   * @throws Exception Flink's exception happens
+   */
+  @Override
+  public void processElement2(String value, CoProcessFunction<Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
+    int index = value.indexOf(":");
+    String message = value.substring(0, index);
+    if (message.equals("snap")) {
+      ctx.output(sosOutput, inputRateMeasurer.getMetrics());
+    }
   }
 }

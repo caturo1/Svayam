@@ -85,7 +85,7 @@ public abstract class Measurer<T> implements Serializable {
    *
    * @return The updated {@link Metrics} instance.
    */
-  public abstract Metrics getMetricsWithId(String id);
+  public abstract Metrics getMetrics();
 
   @Override
   public boolean equals(Object o) {

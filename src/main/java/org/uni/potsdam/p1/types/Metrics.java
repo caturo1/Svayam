@@ -16,7 +16,6 @@ public class Metrics implements Serializable {
   public String name;
   public String description;
   public Map<String, Double> map;
-  public long id;
 
   /**
    * @param name        Name of the corresponding operator

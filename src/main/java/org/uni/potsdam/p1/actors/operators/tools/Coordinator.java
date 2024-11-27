@@ -5,10 +5,8 @@ import com.google.ortools.linearsolver.MPConstraint;
 import com.google.ortools.linearsolver.MPObjective;
 import com.google.ortools.linearsolver.MPSolver;
 import com.google.ortools.linearsolver.MPVariable;
-import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.api.common.state.ValueState;
-import org.apache.flink.api.common.state.ValueStateDescriptor;
-import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
+import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 import org.uni.potsdam.p1.types.EventPattern;
@@ -37,7 +35,7 @@ import java.util.*;
  * of the solver are then sent to the operator which requested help through kafka.
  * </p>
  */
-public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
+public class Coordinator extends ProcessFunction<Metrics, String> {
 
   public HashMap<String, Integer> indexer;
   public OperatorInfo[] operatorsList;
@@ -70,13 +68,13 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
 
   }
 
-  @Override
-  public void open(OpenContext openContext) throws Exception {
-    lambda = getRuntimeContext().getState(new ValueStateDescriptor<>("lambda", Metrics.class));
-  }
+//  @Override
+//  public void open(OpenContext openContext) throws Exception {
+//    lambda = getRuntimeContext().getState(new ValueStateDescriptor<>("lambda", Metrics.class));
+//  }
 
   @Override
-  public void processElement(Metrics value, KeyedProcessFunction<Long, Metrics, String>.Context ctx, Collector<String> out) throws Exception {
+  public void processElement(Metrics value, ProcessFunction<Metrics, String>.Context ctx, Collector<String> out) throws Exception {
 
     // if sos-message: add operator's name to the jobQueue if it not already there
     if (value.description.equals("overloaded")) {
@@ -294,7 +292,7 @@ public class Coordinator extends KeyedProcessFunction<Long, Metrics, String> {
 
       // end work - clear information from the OperatorInfo instances and fetch the next job if available
       operatorsList[indexer.get(lastOverloadedOperator)].isOverloaded = false;
-      out.collect(lastOverloadedOperator + " " + value.id + ": Ready with:\n" + this + "\n" + output);
+      out.collect(lastOverloadedOperator + ": Ready with:\n" + this + "\n" + output);
       clear();
       jobQueue.remove(lastOverloadedOperator);
       if (!jobQueue.isEmpty()) {

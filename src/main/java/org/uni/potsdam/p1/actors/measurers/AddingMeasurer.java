@@ -101,7 +101,7 @@ public class AddingMeasurer extends Measurer<Long> {
   }
 
   @Override
-  public Metrics getMetricsWithId(String id) {
+  public Metrics getMetrics() {
     if (batch < 2) {
       Optional<Long> oldestTimestamp = Optional.ofNullable(runningQueue.peek());
       oldestTimestamp.ifPresentOrElse(
@@ -109,7 +109,6 @@ public class AddingMeasurer extends Measurer<Long> {
         () -> calculateNewestAverages(0)
       );
     }
-    results.id = Long.parseLong(id);
     return results;
   }
 }

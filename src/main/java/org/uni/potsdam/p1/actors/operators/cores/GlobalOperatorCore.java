@@ -1,5 +1,6 @@
 package org.uni.potsdam.p1.actors.operators.cores;
 
+import org.apache.flink.streaming.api.functions.co.CoProcessFunction;
 import org.apache.flink.streaming.api.functions.co.KeyedCoProcessFunction;
 import org.uni.potsdam.p1.actors.measurers.Measurer;
 import org.uni.potsdam.p1.types.EventPattern;
@@ -24,7 +25,7 @@ public class GlobalOperatorCore extends OperatorCore {
     super(operator);
   }
 
-  KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx;
+  CoProcessFunction<Measurement, String, Measurement>.Context ctx;
 
   @Override
   protected void processSideOutputs(EventPattern pattern, Measurement value) {
@@ -54,7 +55,7 @@ public class GlobalOperatorCore extends OperatorCore {
    * @param metricsOutput The side output to be used.
    * @param ctx           The context of this operator's ProcessFunction
    */
-  public void updateAndForward(Measurer<?> measurer, MetricsOutput metricsOutput, KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx) {
+  public void updateAndForward(Measurer<?> measurer, MetricsOutput metricsOutput, CoProcessFunction<Measurement, String, Measurement>.Context ctx) {
     Metrics currentMetrics = measurer.getNewestAverages();
     if (metricsOutput != null) {
       ctx.output(metricsOutput, currentMetrics);
@@ -72,7 +73,7 @@ public class GlobalOperatorCore extends OperatorCore {
    *              timers and querying the time. The context is only valid during the invocation of this
    *              method, do not store it.
    */
-  public void processWithContext(Measurement value, KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx) {
+  public void processWithContext(Measurement value, CoProcessFunction<Measurement, String, Measurement>.Context ctx) {
     this.ctx = ctx;
     super.process(value);
   }
@@ -89,16 +90,15 @@ public class GlobalOperatorCore extends OperatorCore {
    *              timers and querying the time. The context is only valid during the invocation of this
    *              method, do not store it.
    */
-  public void processMessages(String value, KeyedCoProcessFunction<Long, Measurement, String, Measurement>.Context ctx) {
+  public void processMessages(String value, CoProcessFunction<Measurement, String, Measurement>.Context ctx) {
 
     int index = value.indexOf(":");
     String message = value.substring(0, index);
     if (message.equals("snap")) {
-      String sosMessageId = value.substring(index + 1);
 
-      ctx.output(sosOutput, outputRateMeasurer.getMetricsWithId(sosMessageId));
-      ctx.output(sosOutput, processingRateMeasurer.getMetricsWithId(sosMessageId));
-      ctx.output(sosOutput, processingTimesMeasurer.getMetricsWithId(sosMessageId));
+      ctx.output(sosOutput, outputRateMeasurer.getMetrics());
+      ctx.output(sosOutput, processingRateMeasurer.getMetrics());
+      ctx.output(sosOutput, processingTimesMeasurer.getMetrics());
 
     } else if (message.equals(operator.name)) {
       boolean sharesAreAllZero = true;
