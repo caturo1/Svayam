@@ -17,7 +17,6 @@ import java.util.*;
 public abstract class Measurer<T> implements Serializable {
   public Map<String, Integer> indexer;
   public int batchSize;
-  public long batch = 1;
   public Deque<T> runningQueue;
   public long[] countArray;
   public long[] storeArray;
@@ -92,12 +91,12 @@ public abstract class Measurer<T> implements Serializable {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
     Measurer<?> measurer = (Measurer<?>) o;
-    return batchSize == measurer.batchSize && Double.compare(batch, measurer.batch) == 0 && accessIndex == measurer.accessIndex && Objects.equals(indexer, measurer.indexer) && Objects.equals(runningQueue, measurer.runningQueue) && Objects.deepEquals(countArray, measurer.countArray) && Objects.deepEquals(storeArray, measurer.storeArray) && Objects.equals(results, measurer.results);
+    return batchSize == measurer.batchSize && accessIndex == measurer.accessIndex && Objects.equals(indexer, measurer.indexer) && Objects.equals(runningQueue, measurer.runningQueue) && Objects.deepEquals(countArray, measurer.countArray) && Objects.deepEquals(storeArray, measurer.storeArray) && Objects.equals(results, measurer.results);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(indexer, batchSize, batch, runningQueue, Arrays.hashCode(countArray), Arrays.hashCode(storeArray), accessIndex, results);
+    return Objects.hash(indexer, batchSize, runningQueue, Arrays.hashCode(countArray), Arrays.hashCode(storeArray), accessIndex, results);
   }
 
   abstract void calculateNewestAverages(int queueSize);

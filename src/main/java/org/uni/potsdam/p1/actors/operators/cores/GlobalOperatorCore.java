@@ -120,7 +120,6 @@ public class GlobalOperatorCore extends OperatorCore {
         sheddingShares.put("shedding", Double.POSITIVE_INFINITY);
         opLog.info(operator.getSheddingInfo(isShedding));
       }
-      sheddingShares.put("batch", (double) processingTimesMeasurer.batch);
       if (informAnalyser) {
         ctx.output(processingTimes, sheddingShares);
       }

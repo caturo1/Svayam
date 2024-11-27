@@ -53,7 +53,6 @@ public class CountingMeasurer extends Measurer<LocalTime> {
     LocalTime newestTimestamp = runningQueue.peekLast();
     calculateNewestAverages(oldestTimestamp, newestTimestamp, batchSize);
     countArray[indexer.get(String.valueOf(storeArray[accessIndex]))]--;
-    batch++;
     return results;
   }
 
@@ -85,7 +84,6 @@ public class CountingMeasurer extends Measurer<LocalTime> {
     for (String key : indexer.keySet()) {
       results.put(key, elapsedTime == 0 ? 0 : ((double) countArray[indexer.get(key)] / elapsedTime));
     }
-    results.put("batch", (double) batch);
   }
 
   /**
@@ -99,7 +97,7 @@ public class CountingMeasurer extends Measurer<LocalTime> {
    */
   @Override
   public Metrics getMetrics() {
-    if (batch < 2) {
+    if (results.isEmpty()) {
       Optional<LocalTime> oldestTimestamp = Optional.ofNullable(runningQueue.peek());
       oldestTimestamp.ifPresentOrElse(
         storedValue -> calculateNewestAverages(storedValue, runningQueue.peekLast(), runningQueue.size()),

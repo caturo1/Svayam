@@ -64,7 +64,6 @@ public class AddingMeasurer extends Measurer<Long> {
   @Override
   public Metrics getNewestAverages() {
     calculateNewestAverages(batchSize);
-    results.put("batch", (double) batch++);
     runningQueue.poll();
     return results;
   }
@@ -102,7 +101,7 @@ public class AddingMeasurer extends Measurer<Long> {
 
   @Override
   public Metrics getMetrics() {
-    if (batch < 2) {
+    if (results.isEmpty()) {
       Optional<Long> oldestTimestamp = Optional.ofNullable(runningQueue.peek());
       oldestTimestamp.ifPresentOrElse(
         storedValue -> calculateNewestAverages(runningQueue.size()),
