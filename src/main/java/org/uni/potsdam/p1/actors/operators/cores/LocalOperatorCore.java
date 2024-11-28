@@ -58,8 +58,6 @@ public class LocalOperatorCore extends OperatorCore {
       updateAndForward(processingTimesMeasurer, processingTimes, ctx);
       updateAndForward(processingRateMeasurer, processingRates, ctx);
 
-
-      //TODO Consider
       Metrics lambdaIn = processingRateMeasurer.results;
       Metrics ptime = processingTimesMeasurer.results;
       double total = lambdaIn.get("total");
@@ -73,7 +71,7 @@ public class LocalOperatorCore extends OperatorCore {
         calculatedP += (lambdaIn.get(key) / (total == 0 ? 1 : total)) * weight;
       }
 
-      opLog.info(String.format("{\"p\": %f, \"time\": %d, \"name\": \"%s\"}", calculatedP, System.currentTimeMillis(), operator.name));
+      opLog.info(String.format("{\"ptime\": %f, \"time\": %d, \"name\": \"%s\"}", processingTimesMeasurer.getNewestAverages().get("total"), System.currentTimeMillis(), operator.name));
 
       double B = (1 / ((1 / (calculatedP == 0 ? 1 : calculatedP)) - total));
       double ratio = Math.abs(1 - calculatedP / (lastAverage == 0 ? 1 : lastAverage));
@@ -86,6 +84,10 @@ public class LocalOperatorCore extends OperatorCore {
             isShedding = true;
             opLog.info(operator.getSheddingInfo(isShedding));
           }
+          double timeTaken = processingTimesMeasurer.getNewestAverages().get("total");
+          double upperBound = 1 / ((1 / operator.latencyBound) + processingRateMeasurer.getTotalAverageRate());
+          double lowerBound = upperBound * 0.9;
+          factor = timeTaken / lowerBound;
           calculateSheddingRate();
         } else if (isShedding) {
           isShedding = false;
@@ -96,22 +98,6 @@ public class LocalOperatorCore extends OperatorCore {
       lastPtime = ptime.get("total");
       lastLambda = total;
 
-
-//      double timeTaken = processingTimesMeasurer.getNewestAverages().get("total");
-//      opLog.info(String.format("{\"ptime\": %f, \"time\": %d, \"name\": \"%s\"}", processingTimesMeasurer.getNewestAverages().get("total"), System.currentTimeMillis(), operator.name));
-//      double upperBound = 1 / ((1 / operator.latencyBound) + processingRateMeasurer.getTotalAverageRate());
-//      double lowerBound = upperBound * 0.9;
-//      if (timeTaken > lowerBound) {
-//        if (!isShedding) {
-//          isShedding = true;
-//          opLog.info(operator.getSheddingInfo(isShedding));
-//        }
-//        factor = timeTaken / lowerBound;
-//        calculateSheddingRate();
-//      } else if (isShedding) {
-//        isShedding = false;
-//        opLog.info(operator.getSheddingInfo(isShedding));
-//      }
     }
 
     if (outputRateMeasurer.isReady()) {

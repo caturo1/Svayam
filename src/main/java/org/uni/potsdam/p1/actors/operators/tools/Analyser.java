@@ -2,6 +2,8 @@ package org.uni.potsdam.p1.actors.operators.tools;
 
 import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.util.Collector;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
 
@@ -37,6 +39,7 @@ public class Analyser extends ProcessFunction<Metrics, Metrics> {
   double lastPtime = 0.;
   double lastAverage = 0.;
 
+//  public Logger analyserLog = LoggerFactory.getLogger("analyserLog");
   /**
    * Constructs a new Analyser based on the information of a given operator.
    *
@@ -119,6 +122,9 @@ public class Analyser extends ProcessFunction<Metrics, Metrics> {
       }
       calculatedP += (lambdaIn.get(key) / (total == 0 ? 1 : total)) * weight;
     }
+
+//    analyserLog.info(String.format("{\"p\": %f, \"time\": %d, \"name\": \"%s\"}",
+//      calculatedP, System.currentTimeMillis(), operator.name));
 
     double B = (1 / ((1 / (calculatedP == 0 ? 1 : calculatedP)) - total));
     double ratio = Math.abs(1 - calculatedP / (lastAverage == 0 ? 1 : lastAverage));
