@@ -39,7 +39,7 @@ public class GlobalOperatorCore extends OperatorCore {
     if (processingTimesMeasurer.isReady()) {
       updateAndForward(processingTimesMeasurer, processingTimes, ctx);
       updateAndForward(processingRateMeasurer, processingRates, ctx);
-      opLog.info(String.format("{\"ptime\": %f, \"time\": %d, \"name\": \"%s\"}", processingTimesMeasurer.getNewestAverages().get("total"), System.currentTimeMillis(), operator.name));
+      opLog.info(String.format("{\"ptime\": %f, \"time\": %d, \"name\": \"%s\"}", processingTimesMeasurer.results.get("total"), System.currentTimeMillis(), operator.name));
     }
 
     if (outputRateMeasurer.isReady()) {

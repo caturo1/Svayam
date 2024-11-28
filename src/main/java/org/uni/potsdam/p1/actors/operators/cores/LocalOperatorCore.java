@@ -71,7 +71,7 @@ public class LocalOperatorCore extends OperatorCore {
         calculatedP += (lambdaIn.get(key) / (total == 0 ? 1 : total)) * weight;
       }
 
-      opLog.info(String.format("{\"ptime\": %f, \"time\": %d, \"name\": \"%s\"}", processingTimesMeasurer.getNewestAverages().get("total"), System.currentTimeMillis(), operator.name));
+      opLog.info(String.format("{\"ptime\": %f, \"time\": %d, \"name\": \"%s\"}", processingTimesMeasurer.results.get("total"), System.currentTimeMillis(), operator.name));
 
       double B = (1 / ((1 / (calculatedP == 0 ? 1 : calculatedP)) - total));
       double ratio = Math.abs(1 - calculatedP / (lastAverage == 0 ? 1 : lastAverage));
@@ -84,7 +84,7 @@ public class LocalOperatorCore extends OperatorCore {
             isShedding = true;
             opLog.info(operator.getSheddingInfo(isShedding));
           }
-          double timeTaken = processingTimesMeasurer.getNewestAverages().get("total");
+          double timeTaken = processingTimesMeasurer.results.get("total");
           double upperBound = 1 / ((1 / operator.latencyBound) + processingRateMeasurer.getTotalAverageRate());
           double lowerBound = upperBound * 0.9;
           factor = timeTaken / lowerBound;
@@ -158,8 +158,8 @@ public class LocalOperatorCore extends OperatorCore {
    * </p>
    */
   public void calculateSheddingRate() {
-    Metrics mus = processingRateMeasurer.getLatestAverages();
-    Metrics lambdaOuts = outputRateMeasurer.getLatestAverages();
+    Metrics mus = processingRateMeasurer.results;
+    Metrics lambdaOuts = outputRateMeasurer.results;
     for (EventPattern eventPattern : operator.patterns) {
       Map<String, Integer> weights = eventPattern.getWeightMaps();
       double sum = 0.;

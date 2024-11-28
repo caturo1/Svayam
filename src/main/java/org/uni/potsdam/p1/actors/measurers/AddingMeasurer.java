@@ -64,6 +64,10 @@ public class AddingMeasurer extends Measurer<Long> {
   @Override
   public Metrics getNewestAverages() {
     calculateNewestAverages(batchSize);
+    for (String key : indexer.keySet()) {
+      int index = indexer.get(key);
+      countArray[index] -= arrayConnector.get(key)[accessIndex];
+    }
     runningQueue.poll();
     return results;
   }
@@ -87,10 +91,6 @@ public class AddingMeasurer extends Measurer<Long> {
         results.put(key, (double) queueSize);
       } else {
         results.put(key, (double) countArray[index] / (queueSize * 1E9));
-        if (queueSize == batchSize) {
-          countArray[index] -= arrayConnector.get(key)[accessIndex];
-        }
-
       }
     }
   }
