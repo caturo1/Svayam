@@ -108,20 +108,20 @@ public class GlobalOperatorCore extends OperatorCore {
         if (sharesAreAllZero && !currentShare.equals("0.0")) {
           sharesAreAllZero = false;
         }
-        sheddingShares.put(share.substring(0, separationIndex), Double.valueOf(currentShare));
+        sheddingRates.put(share.substring(0, separationIndex), Double.valueOf(currentShare));
       }
       boolean informAnalyser = !sharesAreAllZero || isShedding;
       if (isShedding && sharesAreAllZero) {
         isShedding = false;
-        sheddingShares.put("shedding", Double.NEGATIVE_INFINITY);
+        sheddingRates.put("shedding", Double.NEGATIVE_INFINITY);
         opLog.info(operator.getSheddingInfo(isShedding));
       } else if (!isShedding) {
         isShedding = true;
-        sheddingShares.put("shedding", Double.POSITIVE_INFINITY);
+        sheddingRates.put("shedding", Double.POSITIVE_INFINITY);
         opLog.info(operator.getSheddingInfo(isShedding));
       }
       if (informAnalyser) {
-        ctx.output(processingTimes, sheddingShares);
+        ctx.output(processingTimes, sheddingRates);
       }
     }
   }

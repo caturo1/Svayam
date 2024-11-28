@@ -37,7 +37,6 @@ public class Analyser extends ProcessFunction<Metrics, Metrics> {
   double lastPtime = 0.;
   double lastAverage = 0.;
 
-
   /**
    * Constructs a new Analyser based on the information of a given operator.
    *

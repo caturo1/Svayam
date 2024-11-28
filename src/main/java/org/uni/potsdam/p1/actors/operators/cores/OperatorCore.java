@@ -50,8 +50,8 @@ public abstract class OperatorCore implements Serializable {
   public AddingMeasurer processingTimesMeasurer;
   public CountingMeasurer processingRateMeasurer;
 
-  // define sheddingShares
-  public Metrics sheddingShares;
+  // define sheddingRates
+  public Metrics sheddingRates;
   public boolean isShedding = false;
 
   // set additional operator information
@@ -62,12 +62,12 @@ public abstract class OperatorCore implements Serializable {
   public boolean equals(Object o) {
     if (o == null || getClass() != o.getClass()) return false;
     OperatorCore that = (OperatorCore) o;
-    return isShedding == that.isShedding && Objects.equals(sosOutput, that.sosOutput) && Objects.equals(outputRates, that.outputRates) && Objects.equals(processingTimes, that.processingTimes) && Objects.equals(processingRates, that.processingRates) && Objects.equals(extraOutputs, that.extraOutputs) && Objects.equals(opLog, that.opLog) && Objects.equals(outputRateMeasurer, that.outputRateMeasurer) && Objects.equals(processingTimesMeasurer, that.processingTimesMeasurer) && Objects.equals(processingRateMeasurer, that.processingRateMeasurer) && Objects.equals(sheddingShares, that.sheddingShares) && Objects.equals(operator, that.operator) && Objects.equals(processors, that.processors);
+    return isShedding == that.isShedding && Objects.equals(sosOutput, that.sosOutput) && Objects.equals(outputRates, that.outputRates) && Objects.equals(processingTimes, that.processingTimes) && Objects.equals(processingRates, that.processingRates) && Objects.equals(extraOutputs, that.extraOutputs) && Objects.equals(opLog, that.opLog) && Objects.equals(outputRateMeasurer, that.outputRateMeasurer) && Objects.equals(processingTimesMeasurer, that.processingTimesMeasurer) && Objects.equals(processingRateMeasurer, that.processingRateMeasurer) && Objects.equals(sheddingRates, that.sheddingRates) && Objects.equals(operator, that.operator) && Objects.equals(processors, that.processors);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(sosOutput, outputRates, processingTimes, processingRates, extraOutputs, opLog, outputRateMeasurer, processingTimesMeasurer, processingRateMeasurer, sheddingShares, isShedding, operator, processors);
+    return Objects.hash(sosOutput, outputRates, processingTimes, processingRates, extraOutputs, opLog, outputRateMeasurer, processingTimesMeasurer, processingRateMeasurer, sheddingRates, isShedding, operator, processors);
   }
 
   /**
@@ -96,10 +96,10 @@ public abstract class OperatorCore implements Serializable {
     EventPattern.addProcessors(processors, operator.patterns);
 
     // initialise shedding shares
-    sheddingShares = new Metrics(groupName, "shares", inputTypes.length * outputTypes.length + 1);
+    sheddingRates = new Metrics(groupName, "shares", inputTypes.length * outputTypes.length + 1);
     for (String inputType : inputTypes) {
       for (String outType : outputTypes) {
-        sheddingShares.put(outType + "_" + inputType, 0.);
+        sheddingRates.put(outType + "_" + inputType, 0.);
       }
     }
   }
@@ -153,7 +153,7 @@ public abstract class OperatorCore implements Serializable {
   public void process(Measurement value) {
     LocalTime begin = LocalTime.now();
     for (EventPattern pattern : operator.patterns) {
-      boolean dropPattern = isShedding && sheddingShares.get(pattern.name + "_" + value.type) > Math.random();
+      boolean dropPattern = isShedding && sheddingRates.get(pattern.name + "_" + value.type) > Math.random();
 
       LocalTime start = LocalTime.now();
 
