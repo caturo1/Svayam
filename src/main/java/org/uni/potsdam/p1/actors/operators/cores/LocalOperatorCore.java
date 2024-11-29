@@ -158,8 +158,8 @@ public class LocalOperatorCore extends OperatorCore {
    * </p>
    */
   public void calculateSheddingRate() {
-    Metrics mus = processingRateMeasurer.results;
-    Metrics lambdaOuts = outputRateMeasurer.results;
+    Metrics mus = processingRateMeasurer.getMetrics();
+    Metrics lambdaOuts = outputRateMeasurer.getMetrics();
     for (EventPattern eventPattern : operator.patterns) {
       Map<String, Integer> weights = eventPattern.getWeightMaps();
       double sum = 0.;
