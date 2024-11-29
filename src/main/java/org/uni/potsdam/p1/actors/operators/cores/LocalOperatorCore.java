@@ -79,7 +79,7 @@ public class LocalOperatorCore extends OperatorCore {
       double ratioPtime = Math.abs(1 - ptime.get("total") / (lastPtime == 0 ? 1 : lastPtime));
       double bound = operator.latencyBound;
       if (lastAverage != 0.) {
-        if ((calculatedP > bound || (ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > bound) || (isShedding && B < bound)) {
+        if ((calculatedP > bound || (ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > bound)) {
           if (!isShedding) {
             isShedding = true;
             opLog.info(operator.getSheddingInfo(isShedding));
@@ -89,7 +89,7 @@ public class LocalOperatorCore extends OperatorCore {
           double lowerBound = upperBound * 0.9;
           factor = timeTaken / lowerBound;
           calculateSheddingRate();
-        } else if (isShedding) {
+        } else if (isShedding && B < bound) {
           isShedding = false;
           opLog.info(operator.getSheddingInfo(isShedding));
         }
