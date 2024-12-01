@@ -78,30 +78,36 @@ public class LocalOperatorCore extends OperatorCore {
       double ratioLambda = Math.abs(1 - lambdaIn.get("total") / (lastLambda == 0 ? 1 : lastLambda));
       double ratioPtime = Math.abs(1 - ptime.get("total") / (lastPtime == 0 ? 1 : lastPtime));
       double bound = operator.latencyBound;
+      double timeTaken = processingTimesMeasurer.results.get("total");
+      double upperBound = 1 / ((1 / operator.latencyBound) + processingRateMeasurer.getTotalAverageRate());
+      double lowerBound = upperBound * 0.9;
       if (lastAverage != 0.) {
-        if ((calculatedP > bound || (ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > bound)) {
+        if (calculatedP > bound || ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > bound) || (B < 0 && timeTaken > lowerBound)) {
           if (!isShedding) {
             isShedding = true;
             opLog.info(operator.getSheddingInfo(isShedding));
           }
-          double timeTaken = processingTimesMeasurer.results.get("total");
-          double upperBound = 1 / ((1 / operator.latencyBound) + processingRateMeasurer.getTotalAverageRate());
-          double lowerBound = upperBound * 0.9;
           factor = timeTaken / lowerBound;
           calculateSheddingRate();
-        } else if (isShedding && B < bound) {
+        } else if (isShedding && ((0 < B && B < bound) || timeTaken < lowerBound)) {
           isShedding = false;
           opLog.info(operator.getSheddingInfo(isShedding));
         }
+        // for debugging
+//          opLog.info("B: " + B + " p: " + calculatedP + " lowerBound:" + lowerBound + " timeTaken:" + timeTaken + " " + " shed:" + sheddingRates + " factor:" + factor + " " + operator.getSheddingInfo(isShedding));
       }
       lastAverage = calculatedP;
       lastPtime = ptime.get("total");
       lastLambda = total;
-
     }
 
     if (outputRateMeasurer.isReady()) {
       updateAndForward(outputRateMeasurer, outputRates, ctx);
+      for (EventPattern eventPattern : operator.patterns) {
+        for (String inputType : operator.inputTypes) {
+          sheddingRates.put(eventPattern.name + "_" + inputType, 0.);
+        }
+      }
     }
   }
 

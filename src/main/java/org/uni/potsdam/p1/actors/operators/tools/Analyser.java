@@ -2,8 +2,6 @@ package org.uni.potsdam.p1.actors.operators.tools;
 
 import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.util.Collector;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
 
@@ -33,6 +31,7 @@ public class Analyser extends ProcessFunction<Metrics, Metrics> {
   // define shedding information
   Metrics sheddingRates;
   boolean isShedding = false;
+  boolean isCoordinatorInformed = false;
 
   // store last averages
   double lastLambda = 0.;
@@ -40,6 +39,7 @@ public class Analyser extends ProcessFunction<Metrics, Metrics> {
   double lastAverage = 0.;
 
 //  public Logger analyserLog = LoggerFactory.getLogger("analyserLog");
+
   /**
    * Constructs a new Analyser based on the information of a given operator.
    *
@@ -89,6 +89,7 @@ public class Analyser extends ProcessFunction<Metrics, Metrics> {
         } else if (isShedding && value.get("shedding").equals(Double.NEGATIVE_INFINITY)) {
           isShedding = false;
         }
+        isCoordinatorInformed = false;
         return;
       }
       case "lambdaIn": {
@@ -132,8 +133,9 @@ public class Analyser extends ProcessFunction<Metrics, Metrics> {
     double ratioPtime = Math.abs(1 - ptime.get("total") / (lastPtime == 0 ? 1 : lastPtime));
     double bound = operator.latencyBound;
     if (lastAverage != 0.) {
-      if ((calculatedP > bound || (ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > bound) || (isShedding && B < bound) || (deltaX / 1000. > 1)) {
+      if (!isCoordinatorInformed && ((calculatedP > bound || (ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > bound) || (isShedding && B < bound) || (deltaX / 1000. > 1))) {
         informCoordinator(value.name, out);
+        isCoordinatorInformed = true;
       }
     }
     lastAverage = calculatedP;
