@@ -5,7 +5,6 @@ import com.google.ortools.linearsolver.MPConstraint;
 import com.google.ortools.linearsolver.MPObjective;
 import com.google.ortools.linearsolver.MPSolver;
 import com.google.ortools.linearsolver.MPVariable;
-import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
@@ -39,7 +38,6 @@ public class Coordinator extends ProcessFunction<Metrics, String> {
 
   public HashMap<String, Integer> indexer;
   public OperatorInfo[] operatorsList;
-  public ValueState<Metrics> lambda;
   public Set<String> jobQueue;
   public OutputTag<String> sosOutput;
   public Set<String> sinkOperators;
@@ -177,7 +175,20 @@ public class Coordinator extends ProcessFunction<Metrics, String> {
            */
           String currentType = currentPattern.getType();
           boolean isOr = currentType.equals("OR");
-          MPVariable patternYDv = solver.makeNumVar(0, currentNode.getValue("mu", "total"), currentNode.name + "_" + currentPattern.name);
+          MPVariable patternYDv;
+
+          double mu = currentNode.getValue("mu", "total");
+          if (isOr) {
+            double max = 0.;
+            for (String inputType : weights.keySet()) {
+              if (!patternsDvs.containsKey(currentPattern.name + "_" + inputType)) {
+                max = Math.max(max, currentNode.getValue("lambdaIn", inputType));
+              }
+            }
+            patternYDv = solver.makeNumVar(0, max == 0 ? mu : Math.min(max, mu), currentNode.name + "_" + currentPattern.name);
+          } else {
+            patternYDv = solver.makeNumVar(0, mu, currentNode.name + "_" + currentPattern.name);
+          }
 
           // iterate through the input types of this operator
           for (String inputType : weights.keySet()) {
