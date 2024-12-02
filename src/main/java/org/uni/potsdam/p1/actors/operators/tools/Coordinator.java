@@ -177,20 +177,11 @@ public class Coordinator extends ProcessFunction<Metrics, String> {
           boolean isOr = currentType.equals("OR");
           double mu = currentNode.getValue("mu", "total");
           double orBound = 0;
-          Set<String> orSet = new HashSet<>();
+          Set<String> orSet = null;
+          if (isOr) {
+            orSet = new HashSet<>();
+          }
           MPVariable patternYDv = solver.makeNumVar(0, mu, currentNode.name + "_" + currentPattern.name);
-
-//          if (isOr) {
-//            double max = 0.;
-//            for (String inputType : weights.keySet()) {
-//              if (!patternsDvs.containsKey(currentPattern.name + "_" + inputType)) {
-//                max = Math.max(max, currentNode.getValue("lambdaIn", inputType));
-//              }
-//            }
-//            patternYDv = solver.makeNumVar(0, max == 0 ? mu : Math.min(max, mu), currentNode.name + "_" + currentPattern.name);
-//          } else {
-//            patternYDv = solver.makeNumVar(0, mu, currentNode.name + "_" + currentPattern.name);
-//          }
 
           // iterate through the input types of this operator
           for (String inputType : weights.keySet()) {
@@ -251,6 +242,12 @@ public class Coordinator extends ProcessFunction<Metrics, String> {
               constraint.setCoefficient(patternsDvs.get(dvName), factor);
             }
           }
+
+
+          /*
+           * Includes extra constraint for OR-pattern. The y_dv of the pattern must be
+           * smaller or equal to the sum of all input rates of its event types.
+           */
           if (isOr) {
             MPConstraint orConstraint = solver.makeConstraint(-infinity, orBound, currentNode.name + "_or");
             orConstraint.setCoefficient(patternYDv, 1);
