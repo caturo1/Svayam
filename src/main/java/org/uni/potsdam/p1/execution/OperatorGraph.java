@@ -11,6 +11,7 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.uni.potsdam.p1.actors.operators.groups.AbstractOperatorGroup;
+import org.uni.potsdam.p1.actors.operators.groups.BasicOperatorGroup;
 import org.uni.potsdam.p1.actors.operators.groups.GlobalOperatorGroup;
 import org.uni.potsdam.p1.actors.operators.groups.LocalOperatorGroup;
 import org.uni.potsdam.p1.actors.operators.tools.Coordinator;
@@ -19,6 +20,7 @@ import org.uni.potsdam.p1.actors.sources.SourceLogger;
 import org.uni.potsdam.p1.types.EventPattern;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
+import org.uni.potsdam.p1.types.Scope;
 import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
 import org.uni.potsdam.p1.types.outputTags.StringOutput;
 
@@ -77,7 +79,7 @@ public class OperatorGraph extends Settings {
     for (Source source : sources) {
       this.sources.put(source.name, source);
     }
-    if (GLOBAL_SCOPE) {
+    if (SCOPE == Scope.GLOBAL) {
       KAFKA_ADDRESS = "kafka:9092";
       toKafka = new StringOutput("out_to_kafka");
       globalChannelIn = KafkaSource.<String>builder()
@@ -111,11 +113,13 @@ public class OperatorGraph extends Settings {
     this.operators = new HashMap<>(operators.length);
     for (OperatorInfo operator : operators) {
       AbstractOperatorGroup newGroup;
-      if (GLOBAL_SCOPE) {
+      if (SCOPE == Scope.GLOBAL) {
         newGroup = new GlobalOperatorGroup(operator);
         ((GlobalOperatorGroup) newGroup).connectToCoordinator(toCoordinator);
-      } else {
+      } else if (SCOPE == Scope.LOCAL) {
         newGroup = new LocalOperatorGroup(operator);
+      } else {
+        newGroup = new BasicOperatorGroup(operator);
       }
       this.operators.put(operator.name, newGroup);
     }
@@ -136,8 +140,8 @@ public class OperatorGraph extends Settings {
 
     // start execution environment
     final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-    DataStream<String> global;
-    if (GLOBAL_SCOPE) {
+    DataStream<String> global = null;
+    if (SCOPE == Scope.GLOBAL) {
       // define a keyed data stream with which the operators send their information to the coordinator
       global = env.fromSource(globalChannelIn, WatermarkStrategy.noWatermarks(), "global");
     }
@@ -154,11 +158,13 @@ public class OperatorGraph extends Settings {
 
     for (OperatorInfo operator : OPERATORS) {
       AbstractOperatorGroup current = operators.get(operator.name);
-      if (GLOBAL_SCOPE) {
+      if (SCOPE == Scope.GLOBAL) {
         ((GlobalOperatorGroup) current).createDataStream(global);
         streamToCoordinator = ((GlobalOperatorGroup) current).gatherMetrics(streamToCoordinator);
-      } else {
+      } else if (SCOPE == Scope.LOCAL) {
         ((LocalOperatorGroup) current).createDataStream();
+      } else {
+        ((BasicOperatorGroup) current).createDataStream();
       }
       for (EventPattern pattern : current.operatorInfo.patterns) {
         for (String opDownStream : pattern.downstreamOperators) {
@@ -167,7 +173,7 @@ public class OperatorGraph extends Settings {
       }
     }
 
-    if (GLOBAL_SCOPE) {
+    if (SCOPE == Scope.GLOBAL) {
 
       // execute coordinator
       SingleOutputStreamOperator<String> coordinatorOutput = streamToCoordinator
