@@ -175,20 +175,22 @@ public class Coordinator extends ProcessFunction<Metrics, String> {
            */
           String currentType = currentPattern.getType();
           boolean isOr = currentType.equals("OR");
-          MPVariable patternYDv;
-
           double mu = currentNode.getValue("mu", "total");
-          if (isOr) {
-            double max = 0.;
-            for (String inputType : weights.keySet()) {
-              if (!patternsDvs.containsKey(currentPattern.name + "_" + inputType)) {
-                max = Math.max(max, currentNode.getValue("lambdaIn", inputType));
-              }
-            }
-            patternYDv = solver.makeNumVar(0, max == 0 ? mu : Math.min(max, mu), currentNode.name + "_" + currentPattern.name);
-          } else {
-            patternYDv = solver.makeNumVar(0, mu, currentNode.name + "_" + currentPattern.name);
-          }
+          double orBound = 0;
+          Set<String> orSet = new HashSet<>();
+          MPVariable patternYDv = solver.makeNumVar(0, mu, currentNode.name + "_" + currentPattern.name);
+
+//          if (isOr) {
+//            double max = 0.;
+//            for (String inputType : weights.keySet()) {
+//              if (!patternsDvs.containsKey(currentPattern.name + "_" + inputType)) {
+//                max = Math.max(max, currentNode.getValue("lambdaIn", inputType));
+//              }
+//            }
+//            patternYDv = solver.makeNumVar(0, max == 0 ? mu : Math.min(max, mu), currentNode.name + "_" + currentPattern.name);
+//          } else {
+//            patternYDv = solver.makeNumVar(0, mu, currentNode.name + "_" + currentPattern.name);
+//          }
 
           // iterate through the input types of this operator
           for (String inputType : weights.keySet()) {
@@ -235,12 +237,25 @@ public class Coordinator extends ProcessFunction<Metrics, String> {
             MPConstraint constraint;
             if (isOr) {
               constraint = solver.makeConstraint(bound, infinity, dvName);
+              if (!dvExists || isOverloadedOp) {
+                orBound += factor;
+              }
+              if (dvExists) {
+                orSet.add(dvName);
+              }
             } else {
               constraint = solver.makeConstraint(-infinity, bound, dvName);
             }
             constraint.setCoefficient(patternYDv, weights.getOrDefault(inputType, 1));
             if (dvExists) {
               constraint.setCoefficient(patternsDvs.get(dvName), factor);
+            }
+          }
+          if (isOr) {
+            MPConstraint orConstraint = solver.makeConstraint(-infinity, orBound, currentNode.name + "_or");
+            orConstraint.setCoefficient(patternYDv, 1);
+            for (String dv : orSet) {
+              orConstraint.setCoefficient(patternsDvs.get(dv), isOverloadedOp ? currentNode.getValue("lambdaIn", dv.substring(patternName.length() + 1)) : -1);
             }
           }
 
