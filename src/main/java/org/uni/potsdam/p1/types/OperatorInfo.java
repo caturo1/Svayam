@@ -38,6 +38,7 @@ public class OperatorInfo implements Serializable {
   public Metrics[] metrics = new Metrics[4];
   public int controlBatchSize;
   public double latencyBound;
+  public String executionGroup;
 
   /**
    * Constructs an empty {@link OperatorInfo} instance
@@ -256,4 +257,8 @@ public class OperatorInfo implements Serializable {
     return "{ \"isShedding\": " + isShedding + ", \"time\": " + System.currentTimeMillis() + ", \"name\": \"" + name + "\"}";
   }
 
+  public OperatorInfo withExecutionGroup(String group) {
+    executionGroup = group;
+    return this;
+  }
 }

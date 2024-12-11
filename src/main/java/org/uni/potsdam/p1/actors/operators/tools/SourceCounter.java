@@ -26,7 +26,6 @@ public class SourceCounter extends CoProcessFunction<Measurement, String, Measur
   // define the Measurers for the stream characteristics
   CountingMeasurer inputRateMeasurer;
   String name;
-  String sourceName;
 
   /**
    * Initialise the event counter.
@@ -105,10 +104,10 @@ public class SourceCounter extends CoProcessFunction<Measurement, String, Measur
    */
   @Override
   public void processElement2(String value, CoProcessFunction<Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
-    int index = value.indexOf(":");
-    String message = value.substring(0, index);
-    if (message.equals("snap")) {
+    if (value.equals("snap")) {
       ctx.output(sosOutput, inputRateMeasurer.getMetrics());
+    } else {
+      throw new IllegalStateException("False message received. Should be snap.");
     }
   }
 }

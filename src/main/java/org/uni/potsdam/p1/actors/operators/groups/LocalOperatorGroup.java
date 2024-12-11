@@ -36,7 +36,7 @@ public class LocalOperatorGroup extends AbstractOperatorGroup {
 
     outputDataStream = inputDataStreams
       .process(operator)
-//      .slotSharingGroup(opName)
+//      .slotSharingGroup(operatorInfo.executionGroup)
       .name("Operator_" + opName);
 
   }

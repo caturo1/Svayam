@@ -78,7 +78,7 @@ public class Coordinator extends ProcessFunction<Metrics, String> {
     if (value.description.equals("overloaded")) {
       if (jobQueue.isEmpty()) {
         operatorsList[indexer.get(value.name)].isOverloaded = true;
-        ctx.output(sosOutput, "snap:" + System.nanoTime());
+        ctx.output(sosOutput, "snap");
       }
       jobQueue.add(value.name);
     } else {
@@ -289,28 +289,46 @@ public class Coordinator extends ProcessFunction<Metrics, String> {
       // append solution values for all x-dvs, serialize them and forward them to the overloaded operator
       StringBuilder output = new StringBuilder();
       output.append(overloadedOperatorInfo.name).append(":");
-      if (results != MPSolver.ResultStatus.OPTIMAL) {
-        xDvList.forEach(xDv -> output.append(xDv.name()).append("|").append(1).append(":"));
-      } else {
-        xDvList.forEach(xDv -> output.append(xDv.name()).append("|").append(xDv.solutionValue()).append(":"));
+      boolean isAllZeros = true;
+      boolean isNotOptimal = results != MPSolver.ResultStatus.OPTIMAL;
+      for(MPVariable xDv : xDvList) {
+        if (isNotOptimal) {
+          output.append(xDv.name()).append("|").append(0.9).append( ":");
+        } else {
+          double solution = xDv.solutionValue();
+          output.append(xDv.name()).append("|").append(solution).append(":");
+          if(isAllZeros && solution != 0.) {
+            isAllZeros = false;
+          }
+        }
       }
-      ctx.output(sosOutput, output.toString());
+//      if (results != MPSolver.ResultStatus.OPTIMAL) {
+//        xDvList.forEach(xDv ->
+//          output.append(xDv.name()).append("|").append(0.9).append( ":"));
+//      } else {
+//        xDvList.forEach(xDv -> output.append(xDv.name()).append("|").append(xDv.solutionValue()).append(":"));
+//      }
+      if(!isAllZeros) {
+//        ctx.output(sosOutput, overloadedOperatorInfo.name);
+//      } else {
+        ctx.output(sosOutput, output.toString());
+      }
 
       /*
       following 12 are only for debugging - use a Kafka consumer on the topic globalOut to
       see the coordinator's outputs. If you are not seeing anything then do check the
       latency bound at Settings.java it set high by standard.
        */
-      output.append("\nResults: ").append(results);
-      output.append("\nSolution: ").append(objective.value());
-      output.append("\nSinks: \n");
-      sinksList.values().forEach(dv -> output.append(dv.name()).append(": ").append(dv.solutionValue()).append("\n"));
-      output.append("\nDvs: \n");
-      patternsDvs.forEach((key, value1) -> output.append(value1.name()).append(": ").append(value1.solutionValue()).append("\n"));
-      output.append("\nConstraints: \n");
-      Arrays.stream(solver.constraints()).map(cst -> String.format("%s\n", cst.name())).forEach(output::append);
-      output.append("\nProcessing Time: \n");
-      output.append("p: " + p + " pstar: " + pStar).append("\n");
+//      output.append("\nResults: ").append(results);
+//      output.append("\nSolution: ").append(objective.value());
+//      output.append("\nSinks: \n");
+//      sinksList.values().forEach(dv -> output.append(dv.name()).append(": ").append(dv.solutionValue()).append("\n"));
+//      output.append("\nDvs: \n");
+//      patternsDvs.forEach((key, value1) -> output.append(value1.name()).append(": ").append(value1.solutionValue()).append("\n"));
+//      output.append("\nConstraints: \n");
+//      Arrays.stream(solver.constraints()).map(cst -> String.format("%s\n", cst.name())).forEach(output::append);
+//      output.append("\nProcessing Time: \n");
+//      output.append("p: " + p + " pstar: " + pStar).append("\n");
 
 
       // end work - clear information from the OperatorInfo instances and fetch the next job if available
@@ -320,7 +338,7 @@ public class Coordinator extends ProcessFunction<Metrics, String> {
       jobQueue.remove(lastOverloadedOperator);
       if (!jobQueue.isEmpty()) {
         operatorsList[indexer.get(jobQueue.iterator().next())].isOverloaded = true;
-        ctx.output(sosOutput, "snap:" + System.nanoTime());
+        ctx.output(sosOutput, "snap");
       }
     }
   }

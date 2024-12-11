@@ -19,9 +19,9 @@ import java.util.Map;
 public class LocalOperatorCore extends OperatorCore {
 
   public double factor;
-  double lastLambda = 0.;
-  double lastPtime = 0.;
-  double lastAverage = 0.;
+  double lastLambda;
+  double lastPtime;
+  double lastAverage;
 
   /**
    * Creates a new operator core.
@@ -30,6 +30,9 @@ public class LocalOperatorCore extends OperatorCore {
    */
   public LocalOperatorCore(OperatorInfo operator) {
     super(operator);
+    lastAverage = operator.latencyBound;
+    lastPtime = lastAverage;
+    lastLambda = operator.controlBatchSize;
   }
 
   ProcessFunction<Measurement, Measurement>.Context ctx;
@@ -60,54 +63,50 @@ public class LocalOperatorCore extends OperatorCore {
 
       Metrics lambdaIn = processingRateMeasurer.results;
       Metrics ptime = processingTimesMeasurer.results;
-      double total = lambdaIn.get("total");
+      double totalLambda = lambdaIn.get("total");
+      double totalPtime = ptime.get("total");
       double calculatedP = 0.;
       for (String key : operator.inputTypes) {
         double weight = 0;
         for (String key2 : operator.outputTypes) {
-          double share = (1 - sheddingRates.get(key2 + "_" + key));
+          double share = isShedding ? (1 - sheddingRates.get(key2 + "_" + key)) : 1;
           weight += share * ptime.get(key2);
         }
-        calculatedP += (lambdaIn.get(key) / (total == 0 ? 1 : total)) * weight;
+        calculatedP += totalLambda == 0 ? 0 : (lambdaIn.get(key) / totalLambda) * weight;
       }
 
-      opLog.info(String.format("{\"ptime\": %f, \"time\": %d, \"name\": \"%s\"}", processingTimesMeasurer.results.get("total"), System.currentTimeMillis(), operator.name));
+      opLog.info(String.format("{\"ptime\": %f, \"time\": %d, \"name\": \"%s\"}", totalPtime,
+        System.currentTimeMillis(), operator.name));
 
-      double B = (1 / ((1 / (calculatedP == 0 ? 1 : calculatedP)) - total));
-      double ratio = Math.abs(1 - calculatedP / (lastAverage == 0 ? 1 : lastAverage));
-      double ratioLambda = Math.abs(1 - lambdaIn.get("total") / (lastLambda == 0 ? 1 : lastLambda));
-      double ratioPtime = Math.abs(1 - ptime.get("total") / (lastPtime == 0 ? 1 : lastPtime));
+      double B =
+        Math.max(0,(1 / ((1 / (calculatedP == 0 ? 1 : calculatedP)) - totalLambda)));
+      boolean pHasChanged = calculatedP > 1.1 * lastAverage;
+      boolean lambdaHasChanged = totalLambda > 1.05 * lastLambda;
+      boolean ptimeHasChanged = totalPtime > 1.05 * lastPtime;
       double bound = operator.latencyBound;
-      double timeTaken = processingTimesMeasurer.results.get("total");
       double upperBound = 1 / ((1 / operator.latencyBound) + processingRateMeasurer.getTotalAverageRate());
       double lowerBound = upperBound * 0.9;
-      if (lastAverage != 0.) {
-        if (calculatedP > bound || ((ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > bound) || (B < 0 && timeTaken > lowerBound)) {
-          if (!isShedding) {
-            isShedding = true;
-            opLog.info(operator.getSheddingInfo(isShedding));
-          }
-          factor = timeTaken / lowerBound;
-          calculateSheddingRate();
-        } else if (isShedding && ((0 < B && B < bound) || timeTaken < lowerBound)) {
-          isShedding = false;
+      if (calculatedP > lowerBound || ((pHasChanged || lambdaHasChanged || ptimeHasChanged) && B > bound)) {
+        if (!isShedding) {
+          isShedding = true;
           opLog.info(operator.getSheddingInfo(isShedding));
         }
-        // for debugging
-//          opLog.info("B: " + B + " p: " + calculatedP + " lowerBound:" + lowerBound + " timeTaken:" + timeTaken + " " + " shed:" + sheddingRates + " factor:" + factor + " " + operator.getSheddingInfo(isShedding));
+        factor = totalPtime / lowerBound;
+        calculateSheddingRate();
+      } else if (isShedding && ((0 < B && B < bound) || totalPtime < lowerBound)) {
+        isShedding = false;
+        opLog.info(operator.getSheddingInfo(isShedding));
       }
+      // for debugging
+//      opLog.info("B: " + B + " p: " + calculatedP + " lowerBound:" + lowerBound + " " +
+//        "timeTaken:" + totalPtime + " " + " shed:" + sheddingRates + " factor:" + factor + " " + operator.getSheddingInfo(isShedding));
       lastAverage = calculatedP;
-      lastPtime = ptime.get("total");
-      lastLambda = total;
+      lastPtime = totalPtime;
+      lastLambda = totalLambda;
     }
 
     if (outputRateMeasurer.isReady()) {
       updateAndForward(outputRateMeasurer, outputRates, ctx);
-      for (EventPattern eventPattern : operator.patterns) {
-        for (String inputType : operator.inputTypes) {
-          sheddingRates.put(eventPattern.name + "_" + inputType, 0.);
-        }
-      }
     }
   }
 
@@ -173,13 +172,16 @@ public class LocalOperatorCore extends OperatorCore {
         sum += mus.get(types);
       }
       String patternKey = eventPattern.name;
+      double total = lambdaOuts.get("total");
       for (String inputType : operator.inputTypes) {
         double value;
         if (!weights.containsKey(inputType)) {
           value = 1;
+        } else if (sum == 0 || total == 0) {
+          value = 0;
         } else {
           value = Math.min(1,
-            factor * (mus.get(inputType) / (weights.get(inputType) * sum)) * (lambdaOuts.get(patternKey) / lambdaOuts.get("total")));// * (ptimes.get(patternKey) / ptimes.get("total")));
+            factor * (mus.get(inputType) / (weights.get(inputType) * sum)) * (lambdaOuts.get(patternKey) / total));// * (ptimes.get(patternKey) / ptimes.get("total")));
         }
         sheddingRates.put(eventPattern.name + "_" + inputType, value);
       }

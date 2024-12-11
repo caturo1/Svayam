@@ -1,5 +1,6 @@
 package org.uni.potsdam.p1.actors.operators.groups;
 
+import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.uni.potsdam.p1.actors.operators.FSMOperator;
@@ -12,6 +13,7 @@ import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
 import org.uni.potsdam.p1.types.outputTags.MeasurementOutput;
 import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
+import org.uni.potsdam.p1.types.outputTags.StringOutput;
 
 import java.util.Map;
 
@@ -46,6 +48,8 @@ public class GlobalOperatorGroup extends AbstractOperatorGroup {
   public final Analyser analyser;
   public final SourceCounter counter;
   public MetricsOutput toCoordinator;
+  public KafkaSink<String> globalChannelOut;
+  public final StringOutput fromMessenger;
 
   public SingleOutputStreamOperator<Measurement> counterDataStream;
   public SingleOutputStreamOperator<Metrics> analyserStream;
@@ -66,7 +70,7 @@ public class GlobalOperatorGroup extends AbstractOperatorGroup {
       .setMetricsOutput("ptime", toThisAnalyser);
 
     analyser = new Analyser(operatorInfo);
-
+    fromMessenger = new StringOutput("from_m_to_" + operatorInfo.name);
   }
 
   public void setOutputs(Map<String, AbstractOperatorGroup> operatorGroupMap) {
@@ -78,16 +82,22 @@ public class GlobalOperatorGroup extends AbstractOperatorGroup {
     }
   }
 
+  public GlobalOperatorGroup connectToKafka(StringOutput toKafka,KafkaSink<String> globalChannelOut) {
+    this.analyser.toKafka = toKafka;
+    this.globalChannelOut = globalChannelOut;
+    return this;
+  }
   /**
    * Connects this operator-group to the {@link org.uni.potsdam.p1.actors.operators.tools.Coordinator}
    * of the system.
    *
    * @param toCoordinator Connecting OutputTag.
    */
-  public void connectToCoordinator(MetricsOutput toCoordinator) {
+  public GlobalOperatorGroup connectToCoordinator(MetricsOutput toCoordinator) {
     this.toCoordinator = toCoordinator;
     counter.setMetricsOutput("sos", toCoordinator);
     operator.setMetricsOutput("sos", toCoordinator);
+    return this;
   }
 
   /**
@@ -99,26 +109,28 @@ public class GlobalOperatorGroup extends AbstractOperatorGroup {
    *
    * @param global Message stream channel of the {@link org.uni.potsdam.p1.actors.operators.tools.Coordinator}
    */
-  public void createDataStream(DataStream<String> global) {
+  public void createDataStream(SingleOutputStreamOperator<String> global) {
     String opName = operatorInfo.name;
+    String executionGroup = operatorInfo.executionGroup;
 
     counterDataStream =
       inputDataStreams.connect(global)
         .process(counter)
-//        .slotSharingGroup(opName)
+//        .slotSharingGroup(executionGroup)
         .name("Counter_" + opName);
 
-    outputDataStream = counterDataStream.connect(global)
+    outputDataStream = counterDataStream.connect(global.union(global.getSideOutput(fromMessenger)))
       .process(operator)
-//      .slotSharingGroup(opName)
+//      .slotSharingGroup(executionGroup)
       .name("Operator_" + opName);
 
     analyserStream = counterDataStream.getSideOutput(toThisAnalyser)
       .union(outputDataStream.getSideOutput(toThisAnalyser))
       .process(analyser)
-//      .slotSharingGroup(opName)
+//      .slotSharingGroup(executionGroup)
       .name("Analyser_" + opName);
 
+    analyserStream.getSideOutput(analyser.toKafka).sinkTo(globalChannelOut);
   }
 
   /**

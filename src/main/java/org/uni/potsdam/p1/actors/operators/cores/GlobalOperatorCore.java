@@ -92,34 +92,33 @@ public class GlobalOperatorCore extends OperatorCore {
    */
   public void processMessages(String value, CoProcessFunction<Measurement, String, Measurement>.Context ctx) {
 
-    int index = value.indexOf(":");
-    String message = value.substring(0, index);
-    if (message.equals("snap")) {
+    if(isShedding && value.equals(operator.name )) {
+      isShedding = false;
+      opLog.info(operator.getSheddingInfo(isShedding));
+      sheddingRates.put("shedding", Double.NEGATIVE_INFINITY);
+      return;
+    }
+    if (value.equals("snap")) {
 
       ctx.output(sosOutput, outputRateMeasurer.getMetrics());
       ctx.output(sosOutput, processingRateMeasurer.getMetrics());
       ctx.output(sosOutput, processingTimesMeasurer.getMetrics());
 
-    } else if (message.equals(operator.name)) {
-      boolean sharesAreAllZero = true;
-      for (String share : value.substring(index + 1).split(":")) {
-        int separationIndex = share.indexOf("|");
-        String currentShare = share.substring(separationIndex + 1);
-        if (sharesAreAllZero && !currentShare.equals("0.0")) {
-          sharesAreAllZero = false;
+    } else {
+      int index = value.indexOf(":");
+      if (index > 0 && value.substring(0, index).equals(operator.name)) {
+        for (String share : value.substring(index + 1).split(":")) {
+          int separationIndex = share.indexOf("|");
+          String currentShare = share.substring(separationIndex + 1);
+          sheddingRates.put(share.substring(0, separationIndex), Double.valueOf(currentShare));
         }
-        sheddingRates.put(share.substring(0, separationIndex), Double.valueOf(currentShare));
+        if (!isShedding) {
+          isShedding = true;
+          sheddingRates.put("shedding", Double.POSITIVE_INFINITY);
+          opLog.info(operator.getSheddingInfo(isShedding));
+        }
+        ctx.output(processingTimes, sheddingRates);
       }
-      if (isShedding && sharesAreAllZero) {
-        isShedding = false;
-        sheddingRates.put("shedding", Double.NEGATIVE_INFINITY);
-        opLog.info(operator.getSheddingInfo(isShedding));
-      } else if (!isShedding) {
-        isShedding = true;
-        sheddingRates.put("shedding", Double.POSITIVE_INFINITY);
-        opLog.info(operator.getSheddingInfo(isShedding));
-      }
-      ctx.output(processingTimes, sheddingRates);
     }
   }
 }

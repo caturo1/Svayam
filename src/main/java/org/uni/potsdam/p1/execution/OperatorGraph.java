@@ -15,6 +15,7 @@ import org.uni.potsdam.p1.actors.operators.groups.BasicOperatorGroup;
 import org.uni.potsdam.p1.actors.operators.groups.GlobalOperatorGroup;
 import org.uni.potsdam.p1.actors.operators.groups.LocalOperatorGroup;
 import org.uni.potsdam.p1.actors.operators.tools.Coordinator;
+import org.uni.potsdam.p1.actors.operators.tools.Messenger;
 import org.uni.potsdam.p1.actors.sources.Source;
 import org.uni.potsdam.p1.actors.sources.SourceLogger;
 import org.uni.potsdam.p1.types.EventPattern;
@@ -67,6 +68,9 @@ public class OperatorGraph extends Settings {
   public KafkaSink<String> control;
   public StringOutput toKafka;
 
+
+  SingleOutputStreamOperator<String> global = null;
+
   /**
    * Constructs the operator graph in a local or global scope. Preparing its components
    * accordingly.
@@ -108,6 +112,7 @@ public class OperatorGraph extends Settings {
         .build();
       coordinator = new Coordinator(toKafka, LATENCY_BOUND, operators);
       toCoordinator = new MetricsOutput("out_to_coordinator");
+
     }
 
     this.operators = new HashMap<>(operators.length);
@@ -115,7 +120,9 @@ public class OperatorGraph extends Settings {
       AbstractOperatorGroup newGroup;
       if (SCOPE == Scope.GLOBAL) {
         newGroup = new GlobalOperatorGroup(operator);
-        ((GlobalOperatorGroup) newGroup).connectToCoordinator(toCoordinator);
+        ((GlobalOperatorGroup) newGroup)
+          .connectToCoordinator(toCoordinator)
+          .connectToKafka(toKafka,globalChannelOut);
       } else if (SCOPE == Scope.LOCAL) {
         newGroup = new LocalOperatorGroup(operator);
       } else {
@@ -140,10 +147,10 @@ public class OperatorGraph extends Settings {
 
     // start execution environment
     final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-    DataStream<String> global = null;
     if (SCOPE == Scope.GLOBAL) {
       // define a keyed data stream with which the operators send their information to the coordinator
-      global = env.fromSource(globalChannelIn, WatermarkStrategy.noWatermarks(), "global");
+      global = env.fromSource(globalChannelIn, WatermarkStrategy.noWatermarks(), "global")
+        .process(new Messenger(operators)).name("Messenger");
     }
 
     for (Source source : sources.values()) {
@@ -152,7 +159,9 @@ public class OperatorGraph extends Settings {
         operators.get(opDownStream).addInputStream(source.sourceStream);
       }
       if (LOG_SOURCES) {
-        source.sourceStream.process(new SourceLogger(source.name));
+        source.sourceStream.process(new SourceLogger(source.name))
+//          .slotSharingGroup("process")
+          .name("Logger");
       }
     }
 
@@ -182,8 +191,8 @@ public class OperatorGraph extends Settings {
       // store shedding rates in kafka
       coordinatorOutput.getSideOutput(toKafka).sinkTo(globalChannelOut);
 
-      // output stream for debugging - returns the results of the coordinator
-      coordinatorOutput.sinkTo(control);
+//      // output stream for debugging - returns the results of the coordinator
+//      coordinatorOutput.sinkTo(control);
     }
 
     return env.execute("Flink Java CEP Prototype");

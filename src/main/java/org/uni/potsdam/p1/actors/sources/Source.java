@@ -32,6 +32,7 @@ public class Source {
   public int recordsPerSecond = 0;
 
   public double mean;
+  private String executionGroup;
 
   /**
    * Constructs new source
@@ -169,10 +170,17 @@ public class Source {
     if (sourceStream == null) {
       sourceStream = env.fromSource(createMeasurementSource(),
           WatermarkStrategy.noWatermarks(), name)
+        .slotSharingGroup(executionGroup)
         .name(name);
-      if (mean > 0) {
-        sourceStream = sourceStream.flatMap(new PoissonDataSource(mean));
-      }
     }
+    if (mean > 0) {
+      sourceStream = sourceStream.flatMap(new PoissonDataSource(mean))
+        .slotSharingGroup(executionGroup);
+    }
+  }
+
+  public Source withExecutionGroup(String group) {
+    executionGroup = group;
+    return this;
   }
 }

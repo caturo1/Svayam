@@ -4,6 +4,7 @@ import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.util.Collector;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
+import org.uni.potsdam.p1.types.outputTags.StringOutput;
 
 /**
  * This class analyses the stream characteristics of an operator. It consumes the
@@ -34,9 +35,11 @@ public class Analyser extends ProcessFunction<Metrics, Metrics> {
   boolean isCoordinatorInformed = false;
 
   // store last averages
-  double lastLambda = 0.;
-  double lastPtime = 0.;
-  double lastAverage = 0.;
+  double lastLambda;
+  double lastPtime;
+  double lastAverage;
+
+  public StringOutput toKafka;
 
 //  public Logger analyserLog = LoggerFactory.getLogger("analyserLog");
 
@@ -61,6 +64,9 @@ public class Analyser extends ProcessFunction<Metrics, Metrics> {
     }
     ptime.put("total", 0.);
     lambdaIn.put("total", 0.);
+    lastAverage = operator.latencyBound;
+    lastPtime = lastAverage;
+    lastLambda = operator.controlBatchSize;
   }
 
   /**
@@ -113,34 +119,38 @@ public class Analyser extends ProcessFunction<Metrics, Metrics> {
       }
     }
 
-    double total = lambdaIn.get("total");
+    double totalLambda = lambdaIn.get("total");
+    double totalPtime = ptime.get("total");
     double calculatedP = 0.;
     for (String key : operator.inputTypes) {
       double weight = 0;
       for (String key2 : operator.outputTypes) {
-        double share = (1 - sheddingRates.get(key2 + "_" + key));
+        double share = isShedding ? (1 - sheddingRates.get(key2 + "_" + key)) : 1;
         weight += share * ptime.get(key2);
       }
-      calculatedP += (lambdaIn.get(key) / (total == 0 ? 1 : total)) * weight;
+      calculatedP += (lambdaIn.get(key) / (totalLambda == 0 ? 1 : totalLambda)) * weight;
     }
 
-//    analyserLog.info(String.format("{\"p\": %f, \"time\": %d, \"name\": \"%s\"}",
-//      calculatedP, System.currentTimeMillis(), operator.name));
 
-    double B = (1 / ((1 / (calculatedP == 0 ? 1 : calculatedP)) - total));
-    double ratio = Math.abs(1 - calculatedP / (lastAverage == 0 ? 1 : lastAverage));
-    double ratioLambda = Math.abs(1 - lambdaIn.get("total") / (lastLambda == 0 ? 1 : lastLambda));
-    double ratioPtime = Math.abs(1 - ptime.get("total") / (lastPtime == 0 ? 1 : lastPtime));
+    double B =
+      Math.max(0,(1 / ((1 / (calculatedP == 0 ? 1 : calculatedP)) - totalLambda)));
+    boolean pHasChanged = calculatedP > 1.1 * lastAverage;
+    boolean lambdaHasChanged = totalLambda > 1.05 * lastLambda;
+    boolean ptimeHasChanged = totalPtime > 1.05 * lastPtime;
+
+    double upperBound = 1 / ((1 / operator.latencyBound) + totalLambda);
+    double lowerBound = upperBound * 0.9;
     double bound = operator.latencyBound;
-    if (lastAverage != 0.) {
-      if (!isCoordinatorInformed && ((calculatedP > bound || (ratio > 0.1 || ratioLambda > 0.05 || ratioPtime > 0.05) && B > bound) || (isShedding && B < bound) || (deltaX / 1000. > 1))) {
-        informCoordinator(value.name, out);
-        isCoordinatorInformed = true;
-      }
+    if (!isCoordinatorInformed && calculatedP > lowerBound || ((pHasChanged || lambdaHasChanged || ptimeHasChanged) && B > bound) || (deltaX/1000.) > 1) {
+      informCoordinator(value.name, out);
+      isCoordinatorInformed = true;
+    } else if(isShedding && ((0 < B && B < bound) || totalPtime < lowerBound)) {
+      isShedding = false;
+      ctx.output(toKafka,operator.name);
     }
     lastAverage = calculatedP;
     lastPtime = ptime.get("total");
-    lastLambda = total;
+    lastLambda = totalLambda;
 
   }
 
