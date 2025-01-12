@@ -34,17 +34,18 @@ public class OperatorInfo implements Serializable {
   public boolean isOverloaded = false;
   public boolean isSinkOperator = false;
   public String name;
-  public HashMap<String, Integer> indexer = new HashMap<>(4);
-  public Metrics[] metrics = new Metrics[4];
+  public HashMap<String, Integer> indexer = new HashMap<>(3);
+  public Metrics[] metrics = new Metrics[3];
   public int controlBatchSize;
   public double latencyBound;
-  public String executionGroup;
+  public String executionGroup = null;
 
   /**
    * Constructs an empty {@link OperatorInfo} instance
    */
   public OperatorInfo() {
-    String[] metrics = new String[]{"lambdaIn", "lambdaOut", "mu", "ptime"};
+//    String[] metrics = new String[]{"lambdaIn", "lambdaOut", "mu", "ptime"};
+    String[] metrics = new String[]{"lambdaIn", "mu", "ptime"};
     for (int i = 0; i < metrics.length; i++) {
       indexer.put(metrics[i], i);
     }

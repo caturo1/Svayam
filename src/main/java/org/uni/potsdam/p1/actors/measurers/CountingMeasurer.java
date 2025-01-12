@@ -64,7 +64,7 @@ public class CountingMeasurer extends Measurer<LocalTime> {
   }
 
   @Override
-  void calculateNewestAverages(int queueSize) {
+  public void calculateNewestAverages(int queueSize) {
     LocalTime oldestTimestamp = runningQueue.peek();
     LocalTime newestTimestamp = runningQueue.peekLast();
     calculateNewestAverages(oldestTimestamp, newestTimestamp, queueSize);

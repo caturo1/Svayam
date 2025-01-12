@@ -100,21 +100,31 @@ public class GlobalOperatorCore extends OperatorCore {
     }
     if (value.equals("snap")) {
 
-      ctx.output(sosOutput, outputRateMeasurer.getMetrics());
+
+//      ctx.output(sosOutput, outputRateMeasurer.getMetrics());
       ctx.output(sosOutput, processingRateMeasurer.getMetrics());
       ctx.output(sosOutput, processingTimesMeasurer.getMetrics());
 
     } else {
       int index = value.indexOf(":");
       if (index > 0 && value.substring(0, index).equals(operator.name)) {
+        boolean isAllZeros = true;
         for (String share : value.substring(index + 1).split(":")) {
           int separationIndex = share.indexOf("|");
           String currentShare = share.substring(separationIndex + 1);
-          sheddingRates.put(share.substring(0, separationIndex), Double.valueOf(currentShare));
+          double shareNumber = Double.parseDouble(currentShare);
+          sheddingRates.put(share.substring(0, separationIndex),shareNumber);
+          if(isAllZeros && shareNumber != 0.) {
+            isAllZeros = false;
+          }
         }
         if (!isShedding) {
           isShedding = true;
           sheddingRates.put("shedding", Double.POSITIVE_INFINITY);
+          opLog.info(operator.getSheddingInfo(isShedding));
+        } else if(isShedding && isAllZeros) {
+          isShedding = false;
+          sheddingRates.put("shedding", Double.NEGATIVE_INFINITY);
           opLog.info(operator.getSheddingInfo(isShedding));
         }
         ctx.output(processingTimes, sheddingRates);

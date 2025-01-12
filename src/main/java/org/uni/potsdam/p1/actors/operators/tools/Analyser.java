@@ -141,7 +141,7 @@ public class Analyser extends ProcessFunction<Metrics, Metrics> {
     double upperBound = 1 / ((1 / operator.latencyBound) + totalLambda);
     double lowerBound = upperBound * 0.9;
     double bound = operator.latencyBound;
-    if (!isCoordinatorInformed && calculatedP > lowerBound || ((pHasChanged || lambdaHasChanged || ptimeHasChanged) && B > bound) || (deltaX/1000.) > 1) {
+    if (!isCoordinatorInformed && (calculatedP > lowerBound || ((pHasChanged || lambdaHasChanged || ptimeHasChanged) && B > bound) || (deltaX/1000.) > 1)) {
       informCoordinator(value.name, out);
       isCoordinatorInformed = true;
     } else if(isShedding && ((0 < B && B < bound) || totalPtime < lowerBound)) {

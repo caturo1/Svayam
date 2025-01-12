@@ -66,11 +66,6 @@ public class Coordinator extends ProcessFunction<Metrics, String> {
 
   }
 
-//  @Override
-//  public void open(OpenContext openContext) throws Exception {
-//    lambda = getRuntimeContext().getState(new ValueStateDescriptor<>("lambda", Metrics.class));
-//  }
-
   @Override
   public void processElement(Metrics value, ProcessFunction<Metrics, String>.Context ctx, Collector<String> out) throws Exception {
 
@@ -122,7 +117,7 @@ public class Coordinator extends ProcessFunction<Metrics, String> {
        */
       double totalInputRate = overloadedOperatorInfo.getMetric("lambdaIn").get("total");
       double totalProcessingTime = overloadedOperatorInfo.getMetric("ptime").get("total");
-      double p = Arrays.stream(overloadedOperatorInfo.inputTypes).map(inputType -> (overloadedOperatorInfo.getMetric("lambdaIn").get(inputType) / totalInputRate) * totalProcessingTime).reduce(0., Double::sum);
+      double p = Arrays.stream(overloadedOperatorInfo.inputTypes).map(inputType -> (totalInputRate>0.?overloadedOperatorInfo.getMetric("lambdaIn").get(inputType) / totalInputRate:0) * totalProcessingTime).reduce(0., Double::sum);
       double pStar = 1 / ((1 / bound) + totalInputRate);
       MPConstraint timeConstraint = solver.makeConstraint(p - pStar, MPSolver.infinity(), "time_constraint");
       double ptime = overloadedOperatorInfo.getMetric("ptime").get(overloadedOperatorInfo.patterns[0].name);
@@ -270,7 +265,6 @@ public class Coordinator extends ProcessFunction<Metrics, String> {
             }
             newNodes.put(downStreamOpName, downStreamOp);
           }
-
           if (currentNode.isSinkOperator) {
             sinksList.put(currentNode.name, patternYDv);
           }
@@ -289,30 +283,16 @@ public class Coordinator extends ProcessFunction<Metrics, String> {
       // append solution values for all x-dvs, serialize them and forward them to the overloaded operator
       StringBuilder output = new StringBuilder();
       output.append(overloadedOperatorInfo.name).append(":");
-      boolean isAllZeros = true;
       boolean isNotOptimal = results != MPSolver.ResultStatus.OPTIMAL;
-      for(MPVariable xDv : xDvList) {
+      for (MPVariable xDv : xDvList) {
         if (isNotOptimal) {
-          output.append(xDv.name()).append("|").append(0.9).append( ":");
+          output.append(xDv.name()).append("|").append(0.9).append(":");
         } else {
           double solution = xDv.solutionValue();
           output.append(xDv.name()).append("|").append(solution).append(":");
-          if(isAllZeros && solution != 0.) {
-            isAllZeros = false;
-          }
         }
       }
-//      if (results != MPSolver.ResultStatus.OPTIMAL) {
-//        xDvList.forEach(xDv ->
-//          output.append(xDv.name()).append("|").append(0.9).append( ":"));
-//      } else {
-//        xDvList.forEach(xDv -> output.append(xDv.name()).append("|").append(xDv.solutionValue()).append(":"));
-//      }
-      if(!isAllZeros) {
-//        ctx.output(sosOutput, overloadedOperatorInfo.name);
-//      } else {
-        ctx.output(sosOutput, output.toString());
-      }
+      ctx.output(sosOutput, output.toString());
 
       /*
       following 12 are only for debugging - use a Kafka consumer on the topic globalOut to

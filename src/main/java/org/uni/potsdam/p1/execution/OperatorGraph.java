@@ -10,10 +10,7 @@ import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsIni
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.uni.potsdam.p1.actors.operators.groups.AbstractOperatorGroup;
-import org.uni.potsdam.p1.actors.operators.groups.BasicOperatorGroup;
-import org.uni.potsdam.p1.actors.operators.groups.GlobalOperatorGroup;
-import org.uni.potsdam.p1.actors.operators.groups.LocalOperatorGroup;
+import org.uni.potsdam.p1.actors.operators.groups.*;
 import org.uni.potsdam.p1.actors.operators.tools.Coordinator;
 import org.uni.potsdam.p1.actors.operators.tools.Messenger;
 import org.uni.potsdam.p1.actors.sources.Source;
@@ -24,6 +21,7 @@ import org.uni.potsdam.p1.types.OperatorInfo;
 import org.uni.potsdam.p1.types.Scope;
 import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
 import org.uni.potsdam.p1.types.outputTags.StringOutput;
+import org.uni.potsdam.p1.variant.Variant1;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -83,7 +81,7 @@ public class OperatorGraph extends Settings {
     for (Source source : sources) {
       this.sources.put(source.name, source);
     }
-    if (SCOPE == Scope.GLOBAL) {
+    if (SCOPE == Scope.GLOBAL || SCOPE == Scope.VARIANT) {
       KAFKA_ADDRESS = "kafka:9092";
       toKafka = new StringOutput("out_to_kafka");
       globalChannelIn = KafkaSource.<String>builder()
@@ -122,9 +120,13 @@ public class OperatorGraph extends Settings {
         newGroup = new GlobalOperatorGroup(operator);
         ((GlobalOperatorGroup) newGroup)
           .connectToCoordinator(toCoordinator)
-          .connectToKafka(toKafka,globalChannelOut);
+          .connectToKafka(toKafka, globalChannelOut);
       } else if (SCOPE == Scope.LOCAL) {
         newGroup = new LocalOperatorGroup(operator);
+      } else if (SCOPE == Scope.VARIANT) {
+        newGroup = new Variant1(operator)
+          .connectToCoordinator(toCoordinator)
+          .connectToKafka(toKafka, globalChannelOut);
       } else {
         newGroup = new BasicOperatorGroup(operator);
       }
@@ -147,10 +149,12 @@ public class OperatorGraph extends Settings {
 
     // start execution environment
     final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-    if (SCOPE == Scope.GLOBAL) {
+    if (SCOPE == Scope.GLOBAL || SCOPE == Scope.VARIANT) {
       // define a keyed data stream with which the operators send their information to the coordinator
       global = env.fromSource(globalChannelIn, WatermarkStrategy.noWatermarks(), "global")
-        .process(new Messenger(operators)).name("Messenger");
+        .process(new Messenger(operators,SCOPE))
+//        .slotSharingGroup("Messenger")
+        .name("Messenger");
     }
 
     for (Source source : sources.values()) {
@@ -160,7 +164,6 @@ public class OperatorGraph extends Settings {
       }
       if (LOG_SOURCES) {
         source.sourceStream.process(new SourceLogger(source.name))
-//          .slotSharingGroup("process")
           .name("Logger");
       }
     }
@@ -172,26 +175,35 @@ public class OperatorGraph extends Settings {
         streamToCoordinator = ((GlobalOperatorGroup) current).gatherMetrics(streamToCoordinator);
       } else if (SCOPE == Scope.LOCAL) {
         ((LocalOperatorGroup) current).createDataStream();
+      } else if (SCOPE == Scope.VARIANT) {
+        ((Variant1) current).createDataStream(global);
+        streamToCoordinator = ((Variant1) current).gatherMetrics(streamToCoordinator);
       } else {
         ((BasicOperatorGroup) current).createDataStream();
       }
       for (EventPattern pattern : current.operatorInfo.patterns) {
         for (String opDownStream : pattern.downstreamOperators) {
           operators.get(opDownStream).addInputStream(current.outputDataStream);
+          if(SCOPE == Scope.VARIANT) {
+            Variant1 downstreamOp = (Variant1) operators.get(opDownStream);
+            downstreamOp.addAnalyserInputStream(current.outputDataStream);
+          }
         }
       }
     }
 
-    if (SCOPE == Scope.GLOBAL) {
+    if (SCOPE == Scope.GLOBAL || SCOPE == Scope.VARIANT) {
 
       // execute coordinator
       SingleOutputStreamOperator<String> coordinatorOutput = streamToCoordinator
-        .process(coordinator).name("Coordinator");
+        .process(coordinator)
+//        .slotSharingGroup("Coordinator")
+        .name("Coordinator");
 
       // store shedding rates in kafka
       coordinatorOutput.getSideOutput(toKafka).sinkTo(globalChannelOut);
 
-//      // output stream for debugging - returns the results of the coordinator
+      // output stream for debugging - returns the results of the coordinator
 //      coordinatorOutput.sinkTo(control);
     }
 

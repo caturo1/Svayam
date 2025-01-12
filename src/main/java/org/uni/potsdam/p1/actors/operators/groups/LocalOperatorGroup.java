@@ -33,11 +33,15 @@ public class LocalOperatorGroup extends AbstractOperatorGroup {
    */
   public void createDataStream() {
     String opName = operatorInfo.name;
+    String executionGroup = operatorInfo.executionGroup;
 
     outputDataStream = inputDataStreams
       .process(operator)
-//      .slotSharingGroup(operatorInfo.executionGroup)
       .name("Operator_" + opName);
+
+    if(executionGroup!=null) {
+      outputDataStream.slotSharingGroup(executionGroup);
+    }
 
   }
 

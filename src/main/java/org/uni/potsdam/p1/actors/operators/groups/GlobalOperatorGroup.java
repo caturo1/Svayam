@@ -116,19 +116,22 @@ public class GlobalOperatorGroup extends AbstractOperatorGroup {
     counterDataStream =
       inputDataStreams.connect(global)
         .process(counter)
-//        .slotSharingGroup(executionGroup)
         .name("Counter_" + opName);
 
     outputDataStream = counterDataStream.connect(global.union(global.getSideOutput(fromMessenger)))
       .process(operator)
-//      .slotSharingGroup(executionGroup)
       .name("Operator_" + opName);
 
     analyserStream = counterDataStream.getSideOutput(toThisAnalyser)
       .union(outputDataStream.getSideOutput(toThisAnalyser))
       .process(analyser)
-//      .slotSharingGroup(executionGroup)
       .name("Analyser_" + opName);
+
+    if(executionGroup!=null) {
+      counterDataStream.slotSharingGroup(executionGroup);
+      outputDataStream.slotSharingGroup(executionGroup);
+      analyserStream.slotSharingGroup(executionGroup);
+    }
 
     analyserStream.getSideOutput(analyser.toKafka).sinkTo(globalChannelOut);
   }
