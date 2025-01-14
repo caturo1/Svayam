@@ -34,7 +34,7 @@ public class BasicOperatorCore extends OperatorCore {
     if (processingTimesMeasurer.isReady()) {
       updateAndForward(processingTimesMeasurer, processingTimes, ctx);
       updateAndForward(processingRateMeasurer, processingRates, ctx);
-      opLog.info(String.format("{\"ptime\": %f, \"time\": %d, \"name\": \"%s\"}", processingTimesMeasurer.results.get("total"), System.currentTimeMillis(), operator.name));
+      opLog.info(String.format("{\"ptime\":%f,\"time\":%d,\"name\":\"%s\"}", processingTimesMeasurer.results.get("total"), System.currentTimeMillis(), operator.name));
     }
     if (outputRateMeasurer.isReady()) {
       updateAndForward(outputRateMeasurer, outputRates, ctx);

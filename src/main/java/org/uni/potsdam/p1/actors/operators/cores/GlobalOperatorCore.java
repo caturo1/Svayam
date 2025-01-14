@@ -39,7 +39,7 @@ public class GlobalOperatorCore extends OperatorCore {
     if (processingTimesMeasurer.isReady()) {
       updateAndForward(processingTimesMeasurer, processingTimes, ctx);
       updateAndForward(processingRateMeasurer, processingRates, ctx);
-      opLog.info(String.format("{\"ptime\": %f, \"time\": %d, \"name\": \"%s\"}", processingTimesMeasurer.results.get("total"), System.currentTimeMillis(), operator.name));
+      opLog.info(String.format("{\"ptime\":%f,\"time\":%d,\"name\":\"%s\"}", processingTimesMeasurer.results.get("total"), System.currentTimeMillis(), operator.name));
     }
 
     if (outputRateMeasurer.isReady()) {
@@ -122,7 +122,7 @@ public class GlobalOperatorCore extends OperatorCore {
           isShedding = true;
           sheddingRates.put("shedding", Double.POSITIVE_INFINITY);
           opLog.info(operator.getSheddingInfo(isShedding));
-        } else if(isShedding && isAllZeros) {
+        } else if(isAllZeros) {
           isShedding = false;
           sheddingRates.put("shedding", Double.NEGATIVE_INFINITY);
           opLog.info(operator.getSheddingInfo(isShedding));

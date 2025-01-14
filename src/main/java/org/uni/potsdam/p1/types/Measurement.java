@@ -10,10 +10,11 @@ import java.util.Objects;
 public class Measurement implements Serializable {
   public final int type;
   public final long eventTime;
+  public String id;
 
   /**
-   * Initialises a new instance of this class with a random event type [0-3] and with a
-   * timestamp of the current system clock.
+   * Initialises a new instance of this class with a random event type [0-3].
+   * @see Measurement#Measurement(int)
    */
   public Measurement() {
     type = (int) (Math.random() * 4);
@@ -21,7 +22,8 @@ public class Measurement implements Serializable {
   }
 
   /**
-   * Constructs a new event of a given type
+   * Constructs a new event of a given type and with a timestamp of the current system
+   * clock in milliseconds.
    *
    * @param type Type of the new event
    */
@@ -53,21 +55,20 @@ public class Measurement implements Serializable {
     eventTime = System.currentTimeMillis();
   }
 
-  @Override
-  public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
-    Measurement that = (Measurement) o;
-    return type == that.type && eventTime == that.eventTime;/*; && source == that.source;*/
+  public Measurement(int type, String id) {
+    this(type);
+    this.id = id;
   }
+
+
 
   @Override
   public String toString() {
-    return "{ \"type\": " + type + ", \"time\": " + eventTime + "}";
+    return "{\"type\":"+type + ",\"time\":" + eventTime + "}";
   }
 
   public String toJson(String name) {
-    return "{ \"type\": " + type + ", \"time\": " + eventTime + ",\"name\": \"" + name + "\" }";
+    return "{\"type\":" + type + ",\"time\":" + eventTime + ",\"name\":\"" + name + "\",\"id\":\""+id+"\"}";
   }
 
   /**
@@ -80,7 +81,14 @@ public class Measurement implements Serializable {
   }
 
   @Override
+  public boolean equals(Object o) {
+    if (o == null || getClass() != o.getClass()) return false;
+    Measurement that = (Measurement) o;
+    return type == that.type && eventTime == that.eventTime && Objects.equals(id, that.id);
+  }
+
+  @Override
   public int hashCode() {
-    return Objects.hash(type, eventTime);
+    return Objects.hash(type, eventTime, id);
   }
 }

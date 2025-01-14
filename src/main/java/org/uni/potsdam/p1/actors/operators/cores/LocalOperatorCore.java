@@ -75,7 +75,7 @@ public class LocalOperatorCore extends OperatorCore {
         calculatedP += totalLambda == 0 ? 0 : (lambdaIn.get(key) / totalLambda) * weight;
       }
 
-      opLog.info(String.format("{\"ptime\": %f, \"time\": %d, \"name\": \"%s\"}", totalPtime,
+      opLog.info(String.format("{\"ptime\":%f,\"time\":%d,\"name\":\"%s\"}", totalPtime,
         System.currentTimeMillis(), operator.name));
 
       double B =

@@ -9,6 +9,11 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.uni.potsdam.p1.types.Measurement;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.stream.Stream;
+
 /**
  * <p>This class stores the basic information about a source to be used in an
  * {@link org.uni.potsdam.p1.execution.OperatorGraph}. Instances of this class should
@@ -83,6 +88,28 @@ public class Source {
   public Source withOutputTypes(int... events) {
     this.eventGenerator = index -> new Measurement(events);
     return this;
+  }
+
+  /**
+   * Constructs a source that reads event types from a file and generates new measurements
+   * in accordance. In order for this method to work the file should contain a single
+   * integer per line (representing the event type).
+   * @param pathToFile Path to the file containing the event types (should be present in
+   *                   the machine executing the flink jobmanager)
+   */
+  public Source(Path pathToFile) {
+    if (!Files.exists(pathToFile)) {
+      throw new IllegalArgumentException("Given path is invalid. File does not exist.");
+    }
+    if (!Files.isReadable(pathToFile)) {
+      throw new IllegalArgumentException("Given path is invalid. File is not readable.");
+    }
+    try (Stream<String> in = Files.lines(pathToFile)) {
+      int[] arg = in.mapToInt(Integer::parseInt).toArray();
+      this.eventGenerator = new FromFile(arg);
+    } catch (IOException ex) {
+      throw new RuntimeException(ex);
+    }
   }
 
   /**
@@ -168,19 +195,34 @@ public class Source {
    */
   public void createDataStream(StreamExecutionEnvironment env) {
     if (sourceStream == null) {
-      sourceStream = env.fromSource(createMeasurementSource(),
-          WatermarkStrategy.noWatermarks(), name)
-        .slotSharingGroup(executionGroup)
-        .name(name);
+      sourceStream =
+        env.fromSource(createMeasurementSource(),
+            WatermarkStrategy.noWatermarks(), name)
+          .slotSharingGroup(executionGroup)
+          .name(name);
     }
     if (mean > 0) {
-      sourceStream = sourceStream.flatMap(new PoissonDataSource(mean))
-        .slotSharingGroup(executionGroup);
+      sourceStream = sourceStream.flatMap(new PoissonDataSource(mean));
+//        .slotSharingGroup(executionGroup);
     }
   }
 
   public Source withExecutionGroup(String group) {
     executionGroup = group;
     return this;
+  }
+}
+
+class FromFile implements GeneratorFunction<Long, Measurement> {
+  int[] arr;
+  int index = 0;
+
+  public FromFile(int[] arr) {
+    this.arr = arr;
+  }
+
+  @Override
+  public Measurement map(Long aLong) throws Exception {
+    return new Measurement(arr[index++],aLong.toString());
   }
 }

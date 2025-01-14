@@ -85,6 +85,11 @@ public abstract class FSMProcessor implements Serializable {
       }
       if (current.advancesWith(value.type)) {
         if (current.finishesInOne()) {
+          StringBuilder outputId = new StringBuilder(current.participants.size()+1);
+          for(Measurement meas : current.participants) {
+            outputId.append(meas.id).append("-");
+          }
+          outputId.append(value.id);
           currentFSMs.removeIf(fsm -> {
             if (fsm == current) {
               return false;
@@ -93,7 +98,7 @@ public abstract class FSMProcessor implements Serializable {
           });
           currentFSMs.remove(current);
           currentFSMs.removeAll(toDelete);
-          return new Measurement(patternType);
+          return new Measurement(patternType,outputId.toString());
         }
         candidates.add(getNextFSM(current, value));
       }

@@ -255,7 +255,7 @@ public class OperatorInfo implements Serializable {
   }
 
   public String getSheddingInfo(boolean isShedding) {
-    return "{ \"isShedding\": " + isShedding + ", \"time\": " + System.currentTimeMillis() + ", \"name\": \"" + name + "\"}";
+    return "{\"isShedding\":" + isShedding + ",\"time\": " + System.currentTimeMillis() + ",\"name\":\"" + name + "\"}";
   }
 
   public OperatorInfo withExecutionGroup(String group) {
