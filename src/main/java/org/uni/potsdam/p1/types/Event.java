@@ -49,6 +49,10 @@ public class Event implements Serializable {
     this(types[(int) (Math.random() * types.length)]);
   }
 
+  public void setAttributes(String[] attributes) {
+    this.attributes = attributes;
+  }
+
   /**
    * Constructs a new event of a given type in a given range
    *
