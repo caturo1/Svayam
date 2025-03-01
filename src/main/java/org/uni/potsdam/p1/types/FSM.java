@@ -10,12 +10,12 @@ import java.util.concurrent.TimeUnit;
 /**
  * This class represents a basic Finite State Machine. It only implements basic logic
  * for constructing and controlling the state of a machine as well as information about
- * the {@link Measurement} instances used for its transitions. Extensions of this class
+ * the {@link Event} instances used for its transitions. Extensions of this class
  * are to be used together with a {@link FSMProcessor}
  * , where they are adjusted to the behavior of the processor.
  */
 public class FSM {
-  public Set<Measurement> participants;
+  public Set<Event> participants;
   public long startTime;
 
   /**
@@ -23,7 +23,7 @@ public class FSM {
    *
    * @param value Initiating event.
    */
-  public FSM(Measurement value) {
+  public FSM(Event value) {
     this.participants = new HashSet<>(List.of(value));
     this.startTime = value.eventTime;
   }
@@ -34,7 +34,7 @@ public class FSM {
    * @param participants Set of events
    * @param startTime    Time of the very first event in the machine.
    */
-  public FSM(Set<Measurement> participants, long startTime) {
+  public FSM(Set<Event> participants, long startTime) {
     this.participants = participants;
     this.startTime = startTime;
   }
@@ -44,23 +44,23 @@ public class FSM {
    * state of the current State Machine (this) and is thus included in the list of
    * participant-events of the new instance.
    *
-   * @param value Measurement event that advances the state of the current machine.
+   * @param value Event event that advances the state of the current machine.
    * @return New state machine in the new advanced state.
    */
-  public FSM advancedFSM(Measurement value) {
+  public FSM advancedFSM(Event value) {
     return new FSM(value);
   }
 
   /**
-   * Check if the current read {@link Measurement} value is timeInSeconds older than the
+   * Check if the current read {@link Event} value is timeInSeconds older than the
    * first event contained in this Finite State Machine.
    *
-   * @param value         Measurement event used for comparison.
+   * @param value         Event event used for comparison.
    * @param timeInSeconds Time window for the comparison.
    * @return True if the event is older than the time difference between the event time of
    * value with timeInSeconds.
    */
-  public boolean startsBefore(Measurement value, int timeInSeconds) {
+  public boolean startsBefore(Event value, int timeInSeconds) {
     return startTime < value.eventTime - TimeUnit.SECONDS.toMillis(timeInSeconds);
   }
 
@@ -70,7 +70,7 @@ public class FSM {
    * @param type Type of event
    * @return True if it advances the state of this instance.
    */
-  public boolean advancesWith(int type) {
+  public boolean advancesWith(String type) {
     return false;
   }
 
@@ -89,11 +89,11 @@ public class FSM {
    * in the given set. This is used in the {@link FSMProcessor}
    * classes to remove Finite State Machines which contain already matched events.
    *
-   * @param measurement Set of events to be found.
+   * @param events Set of events to be found.
    * @return True if this instance contains one or more events in the set.
    */
-  public boolean contains(Set<Measurement> measurement) {
-    return participants.removeAll(measurement);
+  public boolean contains(Set<Event> events) {
+    return participants.removeAll(events);
   }
 
   /**
@@ -101,11 +101,11 @@ public class FSM {
    * in addition to a new one. This is used in the {@link FSMProcessor}
    * to create the sets of events contained in new FSMs.
    *
-   * @param value New {@link Measurement} event to be added
+   * @param value New {@link Event} event to be added
    * @return Expanded set of events.
    */
-  public Set<Measurement> cloneAndExpandSet(Measurement value) {
-    Set<Measurement> newSet = new HashSet<>(this.participants);
+  public Set<Event> cloneAndExpandSet(Event value) {
+    Set<Event> newSet = new HashSet<>(this.participants);
     newSet.add(value);
     return newSet;
   }

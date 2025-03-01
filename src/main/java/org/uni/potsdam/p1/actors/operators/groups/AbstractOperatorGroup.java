@@ -2,9 +2,9 @@ package org.uni.potsdam.p1.actors.operators.groups;
 
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
-import org.uni.potsdam.p1.types.Measurement;
+import org.uni.potsdam.p1.types.Event;
 import org.uni.potsdam.p1.types.OperatorInfo;
-import org.uni.potsdam.p1.types.outputTags.MeasurementOutput;
+import org.uni.potsdam.p1.types.outputTags.EventOutput;
 
 import java.util.Map;
 
@@ -15,7 +15,7 @@ import java.util.Map;
  * </p>
  * <p>
  * An OperatorGroup stores the operator's input and
- * output data streams, its connecting outputTag (the {@link MeasurementOutput} instance
+ * output data streams, its connecting outputTag (the {@link EventOutput} instance
  * used to reach this operator from other operators), the core operator's information as
  * well as the operator's processor and possibly additional control structures.
  * </p>
@@ -28,10 +28,10 @@ import java.util.Map;
  */
 public abstract class AbstractOperatorGroup {
 
-  public final MeasurementOutput toThisOperator;
+  public final EventOutput toThisOperator;
   public final OperatorInfo operatorInfo;
-  public DataStream<Measurement> inputDataStreams;
-  public SingleOutputStreamOperator<Measurement> outputDataStream;
+  public DataStream<Event> inputDataStreams;
+  public SingleOutputStreamOperator<Event> outputDataStream;
 
   /**
    * Constructs a new operator group based on an operator's information.
@@ -40,7 +40,7 @@ public abstract class AbstractOperatorGroup {
    */
   public AbstractOperatorGroup(OperatorInfo operatorInfo) {
     this.operatorInfo = operatorInfo;
-    toThisOperator = new MeasurementOutput("out_to_operator_" + operatorInfo.name);
+    toThisOperator = new EventOutput("out_to_operator_" + operatorInfo.name);
   }
 
 
@@ -49,7 +49,7 @@ public abstract class AbstractOperatorGroup {
    *
    * @param inputStream New inputStream of measurements to be added to this operator's inputs (from Source).
    */
-  public void addInputStream(DataStream<Measurement> inputStream) {
+  public void addInputStream(DataStream<Event> inputStream) {
     if (inputDataStreams == null) {
       inputDataStreams = inputStream;
     } else {
@@ -62,8 +62,8 @@ public abstract class AbstractOperatorGroup {
    *
    * @param inputStream New inputStream of measurements to be added to this operator's inputs (from another operator's side output).
    */
-  public void addInputStream(SingleOutputStreamOperator<Measurement> inputStream) {
-    DataStream<Measurement> stream = inputStream.getSideOutput(toThisOperator);
+  public void addInputStream(SingleOutputStreamOperator<Event> inputStream) {
+    DataStream<Event> stream = inputStream.getSideOutput(toThisOperator);
     if (inputDataStreams == null) {
       inputDataStreams = stream;
     } else {
@@ -75,7 +75,7 @@ public abstract class AbstractOperatorGroup {
    * Add side outputs connections to other operators using a connection operator group map
    * provided by the {@link org.uni.potsdam.p1.execution.OperatorGraph}.
    *
-   * @param operatorGroupMap Map linking each operator group with its own {@link MeasurementOutput}
+   * @param operatorGroupMap Map linking each operator group with its own {@link EventOutput}
    *                         instance.
    */
   public abstract void setOutputs(Map<String, AbstractOperatorGroup> operatorGroupMap);

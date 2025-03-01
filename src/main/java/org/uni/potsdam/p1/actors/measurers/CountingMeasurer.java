@@ -18,11 +18,13 @@ import java.util.Optional;
  */
 public class CountingMeasurer extends Measurer<LocalTime> {
 
+  public String[] storeArray;
   /**
    * @see Measurer#Measurer(String, String[], String, int)
    */
   public CountingMeasurer(String operatorName, String[] eventTypes, String metricName, int batchSize) {
     super(operatorName, eventTypes, metricName, batchSize);
+    storeArray = new String[batchSize];
   }
 
   /**
@@ -36,9 +38,9 @@ public class CountingMeasurer extends Measurer<LocalTime> {
     countArray[indexer.get(eventType)]++;
     if (runningQueue.size() > batchSize) {
       runningQueue.poll();
-      countArray[indexer.get(String.valueOf(storeArray[accessIndex]))]--;
+      countArray[indexer.get(storeArray[accessIndex])]--;
     }
-    storeArray[accessIndex] = Long.parseLong(eventType);
+    storeArray[accessIndex] = eventType;
     accessIndex = (accessIndex + 1) % batchSize;
   }
 
@@ -52,7 +54,7 @@ public class CountingMeasurer extends Measurer<LocalTime> {
     LocalTime oldestTimestamp = runningQueue.poll();
     LocalTime newestTimestamp = runningQueue.peekLast();
     calculateNewestAverages(oldestTimestamp, newestTimestamp, batchSize);
-    countArray[indexer.get(String.valueOf(storeArray[accessIndex]))]--;
+    countArray[indexer.get(storeArray[accessIndex])]--;
     return results;
   }
 

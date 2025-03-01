@@ -2,18 +2,18 @@ package org.uni.potsdam.p1.types.outputTags;
 
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.util.OutputTag;
-import org.uni.potsdam.p1.types.Measurement;
+import org.uni.potsdam.p1.types.Event;
 
 /**
  * Concrete type for an OutputTag of Measurements. Used to deal with Flink's serialization
  * issues
  */
-public class MeasurementOutput extends OutputTag<Measurement> {
-  public MeasurementOutput(String id) {
+public class EventOutput extends OutputTag<Event> {
+  public EventOutput(String id) {
     super(id);
   }
 
-  public MeasurementOutput(String id, TypeInformation<Measurement> typeInfo) {
+  public EventOutput(String id, TypeInformation<Event> typeInfo) {
     super(id, typeInfo);
   }
 }

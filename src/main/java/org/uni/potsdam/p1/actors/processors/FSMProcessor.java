@@ -1,13 +1,10 @@
 package org.uni.potsdam.p1.actors.processors;
 
+import org.uni.potsdam.p1.types.Event;
 import org.uni.potsdam.p1.types.FSM;
-import org.uni.potsdam.p1.types.Measurement;
 
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 
 /**
  * <p>
@@ -26,8 +23,8 @@ import java.util.Objects;
  */
 public abstract class FSMProcessor implements Serializable {
   public List<FSM> currentFSMs;
-  public int patternType;
-  public int[] parameters;
+  public String patternType;
+  public String[] parameters;
   public int timeWindow;
 
   /**
@@ -36,7 +33,7 @@ public abstract class FSMProcessor implements Serializable {
    *
    * @param patternType Number used to identify the complex event pattern to be detected.
    */
-  public FSMProcessor(int patternType) {
+  public FSMProcessor(String patternType) {
     this.patternType = patternType;
   }
 
@@ -50,7 +47,7 @@ public abstract class FSMProcessor implements Serializable {
    * @param timeWindow  Time difference between the first and last events of the pattern
    * @param parameters  Event types to be identified.
    */
-  public FSMProcessor(int patternType, int timeWindow, int... parameters) {
+  public FSMProcessor(String patternType, int timeWindow, String... parameters) {
     this.parameters = parameters;
     this.patternType = patternType;
     currentFSMs = new ArrayList<>(5000);
@@ -60,24 +57,28 @@ public abstract class FSMProcessor implements Serializable {
   /**
    * <p>
    * Iterates through the list of Finite State Machines maintained by this processor and
-   * updates it accordingly using the new {@link Measurement} value. New {@link FSM}
+   * updates it accordingly using the new {@link Event} value. New {@link FSM}
    * instances are created and added to the list if this value advances the state of any
    * state machine already created and older state machines are removed from the list (in
-   * accordance to {@link FSM#startsBefore(Measurement, int)}.
+   * accordance to {@link FSM#startsBefore(Event, int)}.
    * </p>
    * <p>
-   * If this values leads to a match it will produce a new {@link Measurement} event of
+   * If this values leads to a match it will produce a new {@link Event} event of
    * the type specified by this processor and will then delete all finite state machines
    * in the list which contain at least one of the events present in the FSM that just
    * matched.
    * </p>
    *
-   * @param value New {@link Measurement} event to be processed
+   * @param value New {@link Event} event to be processed
    * @return A new event in case of a match or null if no match was possible.
    */
-  public Measurement processElement(Measurement value) {
+  public Event processElement(Event value) {
     List<FSM> candidates = new ArrayList<>(100);
     List<FSM> toDelete = new ArrayList<>();
+
+    //TODO test:
+//    boolean isFirst = true;
+//    FSM firstFound = null;
     for (FSM current : currentFSMs) {
       if (applyTimeBoundary(current, value)) {
         toDelete.add(current);
@@ -85,8 +86,8 @@ public abstract class FSMProcessor implements Serializable {
       }
       if (current.advancesWith(value.type)) {
         if (current.finishesInOne()) {
-          StringBuilder outputId = new StringBuilder(current.participants.size()+1);
-          for(Measurement meas : current.participants) {
+          StringBuilder outputId = new StringBuilder(current.participants.size() + 1);
+          for (Event meas : current.participants) {
             outputId.append(meas.id).append("-");
           }
           outputId.append(value.id);
@@ -98,11 +99,17 @@ public abstract class FSMProcessor implements Serializable {
           });
           currentFSMs.remove(current);
           currentFSMs.removeAll(toDelete);
-          return new Measurement(patternType,outputId.toString());
+          return new Event(patternType, outputId.toString());
         }
         candidates.add(getNextFSM(current, value));
+        //TODO test:
+//        if (isFirst) {
+//        firstFound = current;
+//          isFirst = false;
+//        }
       }
     }
+    // if(firstFound!=null){toDelete.add(firstFound);}
     if (applyStartCondition(value.type)) {
       currentFSMs.add(getNewFSM(value));
     }
@@ -117,7 +124,7 @@ public abstract class FSMProcessor implements Serializable {
    * @param type Initiator type
    * @return True, if this type meet a specified condition.
    */
-  public boolean applyStartCondition(int type) {
+  public boolean applyStartCondition(String type) {
     return false;
   }
 
@@ -129,7 +136,7 @@ public abstract class FSMProcessor implements Serializable {
    * @return False, if current is not old enough or the specified time windows is bellow zero
    * (no time window specified)
    */
-  public boolean applyTimeBoundary(FSM current, Measurement value) {
+  public boolean applyTimeBoundary(FSM current, Event value) {
     if (this.timeWindow <= 0) {
       return false;
     }
@@ -137,25 +144,25 @@ public abstract class FSMProcessor implements Serializable {
   }
 
   /**
-   * Creates a new finite state machine for a given {@link Measurement} event. To be
+   * Creates a new finite state machine for a given {@link Event} event. To be
    * specified in each extension of this class.
    *
    * @param value New initiator event.
    * @return New Finite State Machine
    */
-  public FSM getNewFSM(Measurement value) {
+  public FSM getNewFSM(Event value) {
     return null;
   }
 
   /**
-   * Uses a new {@link Measurement} event to advance the state of a given finite state machine.
+   * Uses a new {@link Event} event to advance the state of a given finite state machine.
    * Creates a new machine in this advanced state and returns it.
    *
    * @param current Given finite state machine.
    * @param value   Event for the state transition.
    * @return New finite state machine in a new advanced state.
    */
-  public FSM getNextFSM(FSM current, Measurement value) {
+  public FSM getNextFSM(FSM current, Event value) {
     return current.advancedFSM(value);
   }
 
@@ -164,7 +171,7 @@ public abstract class FSMProcessor implements Serializable {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
     FSMProcessor that = (FSMProcessor) o;
-    return patternType == that.patternType && Objects.equals(currentFSMs, that.currentFSMs) && Objects.deepEquals(parameters, that.parameters);
+    return Objects.equals(patternType, that.patternType) && Objects.equals(currentFSMs, that.currentFSMs) && Objects.deepEquals(parameters, that.parameters);
   }
 
   @Override
@@ -181,10 +188,10 @@ public abstract class FSMProcessor implements Serializable {
    * @param processor2 Second processor. Can be a ComposedFSMProcessor or null
    * @return A new composed event processor.
    */
-  public static ComposedFSMProcessor composeAND(int outputType, FSMProcessor processor1, FSMProcessor processor2) {
+  public static ComposedFSMProcessor composeAND(String outputType, FSMProcessor processor1, FSMProcessor processor2) {
     return new ComposedFSMProcessor(outputType, processor1, processor2) {
       @Override
-      public boolean applyAcceptanceCondition(Measurement result1, Measurement result2) {
+      public boolean applyAcceptanceCondition(Event result1, Event result2) {
         return result1 != null && result2 != null;
       }
     };
@@ -199,10 +206,10 @@ public abstract class FSMProcessor implements Serializable {
    * @param processor2 Second processor. Can also be a ComposedFSMProcessor or null
    * @return A new composed event processor.
    */
-  public static ComposedFSMProcessor composeOR(int outputType, FSMProcessor processor1, FSMProcessor processor2) {
+  public static ComposedFSMProcessor composeOR(String outputType, FSMProcessor processor1, FSMProcessor processor2) {
     return new ComposedFSMProcessor(outputType, processor1, processor2) {
       @Override
-      public boolean applyAcceptanceCondition(Measurement result1, Measurement result2) {
+      public boolean applyAcceptanceCondition(Event result1, Event result2) {
         return result1 != null || result2 != null;
       }
     };

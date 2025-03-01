@@ -1,8 +1,8 @@
 package org.uni.potsdam.p1.actors.processors;
 
+import org.uni.potsdam.p1.types.Event;
 import org.uni.potsdam.p1.types.EventPattern;
 import org.uni.potsdam.p1.types.FSM;
-import org.uni.potsdam.p1.types.Measurement;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -17,7 +17,7 @@ import java.util.Set;
  */
 public class AndFSMProcessor extends FSMProcessor {
 
-  Map<Integer, Integer> toDetect;
+  Map<String, Integer> toDetect;
 
   /**
    * Constructs a new AND FSMProcessor. Events determined as parameters are stored in a
@@ -27,7 +27,7 @@ public class AndFSMProcessor extends FSMProcessor {
    * @param timeWindow Time difference between the first and last events of the pattern
    * @param parameters Event types to be identified.
    */
-  public AndFSMProcessor(int outputType, int timeWindow, int... parameters) {
+  public AndFSMProcessor(String outputType, int timeWindow, String... parameters) {
     super(outputType, timeWindow, parameters);
     toDetect = new HashMap<>(parameters.length);
     for (int i = 0; i < parameters.length; i++) {
@@ -41,16 +41,16 @@ public class AndFSMProcessor extends FSMProcessor {
    * @param eventPattern Object containing the information of the pattern to be detected.
    */
   public AndFSMProcessor(EventPattern eventPattern) {
-    this(Integer.parseInt(eventPattern.name), eventPattern.timeWindow, eventPattern.getParameters());
+    this(eventPattern.name, eventPattern.timeWindow, eventPattern.getParameters());
   }
 
   @Override
-  public boolean applyStartCondition(int type) {
+  public boolean applyStartCondition(String type) {
     return toDetect.containsKey(type);
   }
 
   @Override
-  public FSM getNewFSM(Measurement value) {
+  public FSM getNewFSM(Event value) {
     return new AndFSM(value);
   }
 
@@ -67,7 +67,7 @@ public class AndFSMProcessor extends FSMProcessor {
      *
      * @param value Initiator value
      */
-    public AndFSM(Measurement value) {
+    public AndFSM(Event value) {
       super(value);
       containType = new boolean[parameters.length];
       containType[toDetect.get(value.type)] = true;
@@ -78,29 +78,29 @@ public class AndFSMProcessor extends FSMProcessor {
      *
      * @param index        Index of the boolean value to be set to true in the new instance.
      * @param types        Array of event types already included in the FSM.
-     * @param participants Set of {@link Measurement} events to be included.
+     * @param participants Set of {@link Event} events to be included.
      * @param startTime    Time of the oldest event in the FSM
      */
-    public AndFSM(int index, boolean[] types, Set<Measurement> participants, long startTime) {
+    public AndFSM(int index, boolean[] types, Set<Event> participants, long startTime) {
       super(participants, startTime);
       containType = Arrays.copyOf(types, types.length);
       containType[index] = true;
     }
 
     @Override
-    public boolean advancesWith(int type) {
+    public boolean advancesWith(String type) {
       int index = toDetect.getOrDefault(type, -1);
       return index != -1 && !containType[index];
     }
 
     @Override
-    public AndFSM advancedFSM(Measurement value) {
+    public AndFSM advancedFSM(Event value) {
       return new AndFSM(toDetect.get(value.type), this.containType, cloneAndExpandSet(value), this.startTime);
     }
 
     @Override
     public boolean finishesInOne() {
-      return participants.size() + 1 == parameters.length;
+      return participants.size() + 1 == containType.length;
     }
   }
 }

@@ -4,16 +4,12 @@ import org.apache.flink.streaming.api.functions.co.CoProcessFunction;
 import org.apache.flink.util.Collector;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
-import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
 import org.uni.potsdam.p1.types.outputTags.StringOutput;
 
 public class Variant1Analyser extends CoProcessFunction<Metrics, String,Metrics> {
   // define latest metrics received
   Metrics ptime;
-  long arrivalTimePtime = -1;
-
   Metrics lambdaIn;
-  long arrivalTimeLambda = -1;
 
   // define operator's information
   OperatorInfo operator;
@@ -29,8 +25,6 @@ public class Variant1Analyser extends CoProcessFunction<Metrics, String,Metrics>
   double lastAverage;
 
   public StringOutput toKafka;
-  MetricsOutput sosOutput;
-  MetricsOutput inputRates;
 
   public Variant1Analyser(OperatorInfo operatorInfo) {
     this.operator = operatorInfo;
@@ -88,11 +82,6 @@ public class Variant1Analyser extends CoProcessFunction<Metrics, String,Metrics>
       }
       case "ptime": {
         ptime = value;
-        long currentTime = System.currentTimeMillis();
-        if (arrivalTimeLambda == -1) {
-          arrivalTimeLambda = currentTime;
-        }
-        arrivalTimePtime = currentTime;
       }
     }
 
@@ -118,10 +107,6 @@ public class Variant1Analyser extends CoProcessFunction<Metrics, String,Metrics>
     double upperBound = 1 / ((1 / operator.latencyBound) + totalLambda);
     double lowerBound = upperBound * 0.9;
     double bound = operator.latencyBound;
-
-//    boolean isOverloaded = (pHasChanged || lambdaHasChanged || ptimeHasChanged) && B > bound;
-//    boolean isUnderloaded = isShedding && 0 < B && B < bound;
-
 
     if (!isCoordinatorInformed && (calculatedP > lowerBound || ((pHasChanged || lambdaHasChanged || ptimeHasChanged) && B > bound))) {
       informCoordinator(value.name, out);

@@ -1,8 +1,9 @@
 package org.uni.potsdam.p1.actors.processors;
 
+import org.uni.potsdam.p1.types.Event;
 import org.uni.potsdam.p1.types.EventPattern;
-import org.uni.potsdam.p1.types.Measurement;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -14,7 +15,7 @@ import java.util.Set;
  */
 public class OrFSMProcessor extends FSMProcessor {
 
-  Set<Integer> toDetect;
+  Set<String> toDetect;
 
   /**
    * Constructs a new OR FSMProcessor. Events determined as parameters are stored in a
@@ -24,12 +25,10 @@ public class OrFSMProcessor extends FSMProcessor {
    * @param timeWindow Time difference between the first and last events of the pattern
    * @param parameters Event types to be identified.
    */
-  public OrFSMProcessor(int outputType, int timeWindow, int... parameters) {
+  public OrFSMProcessor(String outputType, int timeWindow, String... parameters) {
     super(outputType, timeWindow, parameters);
     toDetect = new HashSet<>(parameters.length);
-    for (int j : parameters) {
-      toDetect.add(j);
-    }
+    toDetect.addAll(Arrays.asList(parameters));
   }
 
   /**
@@ -38,26 +37,26 @@ public class OrFSMProcessor extends FSMProcessor {
    * @param eventPattern Object containing the information of the pattern to be detected.
    */
   public OrFSMProcessor(EventPattern eventPattern) {
-    this(Integer.parseInt(eventPattern.name), eventPattern.timeWindow, eventPattern.getParameters());
+    this(eventPattern.name, eventPattern.timeWindow, eventPattern.getParameters());
   }
 
   /**
    * Detects a pattern by simply checking if the given value belongs in the event-set of
    * this instance
    *
-   * @param value New {@link Measurement} event to be processed
+   * @param value New {@link Event} to be processed
    * @return A new event in case of a match or null if no match was possible.
    */
   @Override
-  public Measurement processElement(Measurement value) {
+  public Event processElement(Event value) {
     if (toDetect.contains(value.type)) {
-      return new Measurement(patternType);
+      return new Event(patternType);
     }
     return null;
   }
 
   @Override
-  public boolean applyStartCondition(int type) {
+  public boolean applyStartCondition(String type) {
     return toDetect.contains(type);
   }
 }

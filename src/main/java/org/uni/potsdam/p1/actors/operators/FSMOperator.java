@@ -6,10 +6,10 @@ import org.uni.potsdam.p1.actors.measurers.Measurer;
 import org.uni.potsdam.p1.actors.operators.cores.GlobalOperatorCore;
 import org.uni.potsdam.p1.actors.operators.tools.Coordinator;
 import org.uni.potsdam.p1.actors.processors.FSMProcessor;
-import org.uni.potsdam.p1.types.Measurement;
+import org.uni.potsdam.p1.types.Event;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
-import org.uni.potsdam.p1.types.outputTags.MeasurementOutput;
+import org.uni.potsdam.p1.types.outputTags.EventOutput;
 import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
 
 /**
@@ -26,7 +26,7 @@ import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
  * </ul>
  * <p>
  * Instances of this class should receive a connected keyed stream of Measurements and Strings.
- * The Measurement-stream for the events to be processed and the String-stream for
+ * The Event-stream for the events to be processed and the String-stream for
  * Coordinator-messages.
  * </p>
  *
@@ -34,7 +34,7 @@ import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
  * @see <a href="https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/learn-flink/etl/#connected-streams">https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/learn-flink/etl/#connected-streams</a>
  * @see Coordinator
  */
-public class FSMOperator extends CoProcessFunction<Measurement, String, Measurement> {
+public class FSMOperator extends CoProcessFunction<Event, String, Event> {
 
   GlobalOperatorCore core;
 
@@ -58,7 +58,7 @@ public class FSMOperator extends CoProcessFunction<Measurement, String, Measurem
    * @param whereTo      Output channel where the events are to be forwarded to
    * @return A reference to this instance.
    */
-  public FSMOperator setSideOutput(String operatorName, MeasurementOutput whereTo) {
+  public FSMOperator setSideOutput(String operatorName, EventOutput whereTo) {
     core.setSideOutput(operatorName, whereTo);
     return this;
   }
@@ -77,7 +77,7 @@ public class FSMOperator extends CoProcessFunction<Measurement, String, Measurem
   }
 
   /**
-   * Processes each Measurement event in all patterns of this operator, for which the
+   * Processes each event in all patterns of this operator, for which the
    * pattern-specific shedding rate is greater than a pseudo-random value. Measures and
    * updates the processing time as well as the processing and output rates.
    *
@@ -90,7 +90,7 @@ public class FSMOperator extends CoProcessFunction<Measurement, String, Measurem
    * @throws Exception Error in the flink's thread execution.
    */
   @Override
-  public void processElement1(Measurement value, CoProcessFunction<Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
+  public void processElement1(Event value, CoProcessFunction<Event, String, Event>.Context ctx, Collector<Event> out) throws Exception {
     core.processWithContext(value, ctx);
 
   }
@@ -109,7 +109,7 @@ public class FSMOperator extends CoProcessFunction<Measurement, String, Measurem
    * @throws Exception Flink's error
    */
   @Override
-  public void processElement2(String value, CoProcessFunction<Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
+  public void processElement2(String value, CoProcessFunction<Event, String, Event>.Context ctx, Collector<Event> out) throws Exception {
     core.processMessages(value, ctx);
 
   }

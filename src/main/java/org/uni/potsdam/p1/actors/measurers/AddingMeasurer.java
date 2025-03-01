@@ -26,9 +26,8 @@ public class AddingMeasurer extends Measurer<Long> {
   public AddingMeasurer(String operatorName, String[] eventTypes, String metricName, int batchSize) {
     super(operatorName, eventTypes, metricName, batchSize);
     arrayConnector = new HashMap<>(eventTypes.length);
-    arrayConnector.put(eventTypes[0], storeArray);
-    for (int i = 1; i < eventTypes.length; i++) {
-      arrayConnector.put(eventTypes[i], new long[batchSize]);
+    for (String eventType : eventTypes) {
+      arrayConnector.put(eventType, new long[batchSize]);
     }
   }
 

@@ -5,11 +5,11 @@ import org.slf4j.LoggerFactory;
 import org.uni.potsdam.p1.actors.measurers.AddingMeasurer;
 import org.uni.potsdam.p1.actors.measurers.CountingMeasurer;
 import org.uni.potsdam.p1.actors.processors.FSMProcessor;
+import org.uni.potsdam.p1.types.Event;
 import org.uni.potsdam.p1.types.EventPattern;
-import org.uni.potsdam.p1.types.Measurement;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
-import org.uni.potsdam.p1.types.outputTags.MeasurementOutput;
+import org.uni.potsdam.p1.types.outputTags.EventOutput;
 import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
 
 import java.io.Serializable;
@@ -41,7 +41,7 @@ public abstract class OperatorCore implements Serializable {
   public MetricsOutput outputRates;
   public MetricsOutput processingTimes;
   public MetricsOutput processingRates;
-  public Map<String, MeasurementOutput> extraOutputs;
+  public Map<String, EventOutput> extraOutputs;
 
   public Logger opLog = LoggerFactory.getLogger("opLog");
 
@@ -110,7 +110,7 @@ public abstract class OperatorCore implements Serializable {
    * @param operatorName Name/Type of the operators to be referenced.
    * @param whereTo      Output channel where the events are to be forwarded to
    */
-  public void setSideOutput(String operatorName, MeasurementOutput whereTo) {
+  public void setSideOutput(String operatorName, EventOutput whereTo) {
     int size = operator.patterns.length;
     if (extraOutputs == null) {
       extraOutputs = new HashMap<>(size);
@@ -145,12 +145,12 @@ public abstract class OperatorCore implements Serializable {
   }
 
   /**
-   * Process a new {@link Measurement} event, updates the measurers values and possibly
+   * Process a new {@link Event}, updates the measurers values and possibly
    * produces an output to be forwarded to a specified operator downstream.
    *
    * @param value Latest read event.
    */
-  public void process(Measurement value) {
+  public void process(Event value) {
     LocalTime begin = LocalTime.now();
     for (EventPattern pattern : operator.patterns) {
       boolean dropPattern = isShedding && sheddingRates.get(pattern.name + "_" + value.type) > Math.random();
@@ -158,11 +158,11 @@ public abstract class OperatorCore implements Serializable {
       LocalTime start = LocalTime.now();
 
       if (!dropPattern) {
-        Measurement measurement = processors.get(pattern.name).processElement(value);
-        if (measurement != null) {
+        Event event = processors.get(pattern.name).processElement(value);
+        if (event != null) {
           outputRateMeasurer.update(pattern.name);
-          processSideOutputs(pattern, measurement);
-          opLog.info(measurement.toJson(operator.name));
+          processSideOutputs(pattern, event);
+          opLog.info(event.toJson(operator.name));
         }
       }
       processingTimesMeasurer.updatePatternTime(pattern.name, Duration.between(start, LocalTime.now()).toNanos());
@@ -180,7 +180,7 @@ public abstract class OperatorCore implements Serializable {
    * @param pattern The pattern that got matched.
    * @param value   The newly created event of this pattern's name to be forwarded downstream.
    */
-  protected abstract void processSideOutputs(EventPattern pattern, Measurement value);
+  protected abstract void processSideOutputs(EventPattern pattern, Event value);
 
   /**
    * Proofs if the measurers are ready to calculate their newest averages (minimum amount

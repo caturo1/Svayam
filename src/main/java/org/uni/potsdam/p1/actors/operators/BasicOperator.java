@@ -4,13 +4,13 @@ import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.util.Collector;
 import org.uni.potsdam.p1.actors.measurers.Measurer;
 import org.uni.potsdam.p1.actors.operators.cores.BasicOperatorCore;
-import org.uni.potsdam.p1.types.Measurement;
+import org.uni.potsdam.p1.types.Event;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
-import org.uni.potsdam.p1.types.outputTags.MeasurementOutput;
+import org.uni.potsdam.p1.types.outputTags.EventOutput;
 import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
 
-public class BasicOperator extends ProcessFunction<Measurement, Measurement> {
+public class BasicOperator extends ProcessFunction<Event, Event> {
 
   BasicOperatorCore core;
 
@@ -32,7 +32,7 @@ public class BasicOperator extends ProcessFunction<Measurement, Measurement> {
    * @param whereTo      Output channel where the events are to be forwarded to
    * @return A reference to this instance.
    */
-  public BasicOperator setSideOutput(String operatorName, MeasurementOutput whereTo) {
+  public BasicOperator setSideOutput(String operatorName, EventOutput whereTo) {
     core.setSideOutput(operatorName, whereTo);
     return this;
   }
@@ -51,7 +51,7 @@ public class BasicOperator extends ProcessFunction<Measurement, Measurement> {
   }
 
   /**
-   * Processes each Measurement event in all patterns of this operator, for which the
+   * Processes each Event event in all patterns of this operator, for which the
    * pattern-specific shedding rate is greater than a pseudo-random value. Measures and
    * updates the processing time as well as the processing and output rates.
    *
@@ -64,7 +64,7 @@ public class BasicOperator extends ProcessFunction<Measurement, Measurement> {
    * @throws Exception Error in the flink's thread execution.
    */
   @Override
-  public void processElement(Measurement value, ProcessFunction<Measurement, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
+  public void processElement(Event value, ProcessFunction<Event, Event>.Context ctx, Collector<Event> out) throws Exception {
 
     core.processWithContext(value, ctx);
 

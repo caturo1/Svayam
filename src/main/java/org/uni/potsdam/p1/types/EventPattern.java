@@ -10,7 +10,7 @@ import java.util.Arrays;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 /**
  * <p>
@@ -87,19 +87,19 @@ public class EventPattern implements Serializable {
    * @return Parameters stored in the same order in which they were first written in this
    * object's constructor-call.
    */
-  public int[] getParameters() {
+  public String[] getParameters() {
     int separator = type.indexOf(":");
     String kind = type.substring(0, separator);
     String[] split = type.substring(separator + 1).split(":");
     if (kind.matches("(AND|OR)")) {
-      return Arrays.stream(split).mapToInt(Integer::parseInt).toArray();
+      return split;
     } else if (kind.equals("SEQ")) {
-      return Arrays.stream(split).flatMapToInt(paramater -> {
+      return Arrays.stream(split).flatMap(paramater -> {
         String[] division = paramater.split("\\|");
-        int value = Integer.parseInt(division[0]);
+        String value = division[0];
         int quantity = Integer.parseInt(division[1]);
-        return IntStream.generate(() -> value).limit(quantity);
-      }).toArray();
+        return Stream.generate(() -> value).limit(quantity);
+      }).toArray(String[]::new);
     }
     throw new IllegalArgumentException("False kind of EventPattern type given. Please use AND, SEQ or OR.");
   }

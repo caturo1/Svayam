@@ -1,8 +1,8 @@
 package org.uni.potsdam.p1.actors.processors;
 
+import org.uni.potsdam.p1.types.Event;
 import org.uni.potsdam.p1.types.EventPattern;
 import org.uni.potsdam.p1.types.FSM;
-import org.uni.potsdam.p1.types.Measurement;
 
 import java.util.Set;
 
@@ -13,7 +13,7 @@ import java.util.Set;
  * @see EventPattern
  */
 public class SeqFSMProcessor extends FSMProcessor {
-  public int startType;
+  public String startType;
 
   /**
    * Constructs a new SEQ FSMProcessor. Events determined as parameters are stored in an
@@ -23,7 +23,7 @@ public class SeqFSMProcessor extends FSMProcessor {
    * @param timeWindow Time difference between the first and last events of the pattern
    * @param parameters Event types to be identified.
    */
-  public SeqFSMProcessor(int outputType, int timeWindow, int... parameters) {
+  public SeqFSMProcessor(String outputType, int timeWindow, String... parameters) {
     super(outputType, timeWindow, parameters);
     this.startType = parameters[0];
   }
@@ -34,16 +34,16 @@ public class SeqFSMProcessor extends FSMProcessor {
    * @param eventPattern Object containing the information of the pattern to be detected.
    */
   public SeqFSMProcessor(EventPattern eventPattern) {
-    this(Integer.parseInt(eventPattern.name), eventPattern.timeWindow, eventPattern.getParameters());
+    this(eventPattern.name, eventPattern.timeWindow, eventPattern.getParameters());
   }
 
   @Override
-  public boolean applyStartCondition(int type) {
-    return type == startType;
+  public boolean applyStartCondition(String type) {
+    return type.equals(startType);
   }
 
   @Override
-  public FSM getNewFSM(Measurement value) {
+  public FSM getNewFSM(Event value) {
     return new SeqFSM(value);
   }
 
@@ -60,7 +60,7 @@ public class SeqFSMProcessor extends FSMProcessor {
      *
      * @param value Initiator value
      */
-    public SeqFSM(Measurement value) {
+    public SeqFSM(Event value) {
       super(value);
       index = 1;
     }
@@ -69,21 +69,21 @@ public class SeqFSMProcessor extends FSMProcessor {
      * Constructs a new FSM using information from another instance.
      *
      * @param index        Index to be set in the new instance
-     * @param participants Set of {@link Measurement} events to be included
+     * @param participants Set of {@link Event} events to be included
      * @param startTime    Time of the oldest event in the FSM
      */
-    public SeqFSM(int index, Set<Measurement> participants, long startTime) {
+    public SeqFSM(int index, Set<Event> participants, long startTime) {
       super(participants, startTime);
       this.index = index;
     }
 
     @Override
-    public boolean advancesWith(int type) {
-      return type == parameters[index];
+    public boolean advancesWith(String type) {
+      return type.equals(parameters[index]);
     }
 
     @Override
-    public SeqFSM advancedFSM(Measurement value) {
+    public SeqFSM advancedFSM(Event value) {
       return new SeqFSM(this.index + 1, cloneAndExpandSet(value), this.startTime);
     }
 

@@ -4,21 +4,23 @@ import java.io.Serializable;
 import java.util.Objects;
 
 /**
- * This class is the main abstraction of the DataStreamJob, representing a CPU-Measurement
+ * This class is the main abstraction of the DataStreamJob, representing a CPU-Event
  * from the Google-borg-cluster.
  */
-public class Measurement implements Serializable {
-  public final int type;
+public class Event implements Serializable {
+  public final String type;
   public final long eventTime;
+  public String[] attributes;
   public String id;
 
   /**
    * Initialises a new instance of this class with a random event type [0-3].
-   * @see Measurement#Measurement(int)
+   * @see Event#Event(String)
    */
-  public Measurement() {
-    type = (int) (Math.random() * 4);
+  public Event() {
+    type = "";
     eventTime = System.currentTimeMillis();
+    id = System.nanoTime()+"";
   }
 
   /**
@@ -27,9 +29,15 @@ public class Measurement implements Serializable {
    *
    * @param type Type of the new event
    */
-  public Measurement(int type) {
+  public Event(String type) {
     this.type = type;
     eventTime = System.currentTimeMillis();
+    id = System.nanoTime()+"";
+  }
+
+  public Event(String type,String[] attributes) {
+    this(type);
+    this.attributes = attributes;
   }
 
   /**
@@ -37,7 +45,7 @@ public class Measurement implements Serializable {
    *
    * @param types different possible event types
    */
-  public Measurement(int[] types) {
+  public Event(String[] types) {
     this(types[(int) (Math.random() * types.length)]);
   }
 
@@ -47,19 +55,18 @@ public class Measurement implements Serializable {
    * @param lowerBound lowest event type possible
    * @param upperBound highest event type possible
    */
-  public Measurement(int lowerBound, int upperBound) {
+  public Event(int lowerBound, int upperBound) {
     if (upperBound < lowerBound) {
       throw new IllegalArgumentException("UpperBound must not be greater than the lower bound");
     }
-    this.type = lowerBound + (int) (Math.random() * (upperBound - lowerBound));
+    this.type = ""+lowerBound + (int) (Math.random() * (upperBound - lowerBound));
     eventTime = System.currentTimeMillis();
   }
 
-  public Measurement(int type, String id) {
+  public Event(String type, String id) {
     this(type);
     this.id = id;
   }
-
 
 
   @Override
@@ -77,14 +84,14 @@ public class Measurement implements Serializable {
    * @return Type as String
    */
   public String getTypeAsKey() {
-    return String.valueOf(type);
+    return type;
   }
 
   @Override
   public boolean equals(Object o) {
     if (o == null || getClass() != o.getClass()) return false;
-    Measurement that = (Measurement) o;
-    return type == that.type && eventTime == that.eventTime && Objects.equals(id, that.id);
+    Event that = (Event) o;
+    return type.equals(that.type) && eventTime == that.eventTime && Objects.equals(id, that.id);
   }
 
   @Override

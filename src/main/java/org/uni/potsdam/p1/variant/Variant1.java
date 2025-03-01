@@ -4,11 +4,11 @@ import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.uni.potsdam.p1.actors.operators.groups.AbstractOperatorGroup;
+import org.uni.potsdam.p1.types.Event;
 import org.uni.potsdam.p1.types.EventPattern;
-import org.uni.potsdam.p1.types.Measurement;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
-import org.uni.potsdam.p1.types.outputTags.MeasurementOutput;
+import org.uni.potsdam.p1.types.outputTags.EventOutput;
 import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
 import org.uni.potsdam.p1.types.outputTags.StringOutput;
 
@@ -48,7 +48,7 @@ public class Variant1 extends AbstractOperatorGroup {
   public void setOutputs(Map<String, AbstractOperatorGroup> operatorGroupMap) {
     for (EventPattern pattern : operatorInfo.patterns) {
       for (String operatorName : pattern.downstreamOperators) {
-        MeasurementOutput downstreamOperator = operatorGroupMap.get(operatorName).toThisOperator;
+        EventOutput downstreamOperator = operatorGroupMap.get(operatorName).toThisOperator;
         operator.setSideOutput(operatorName, downstreamOperator);
         Variant1 downstreamOp = (Variant1) operatorGroupMap.get(operatorName);
         operator.setMetricsOutput("lambdaOut",downstreamOp.toAnalyser);
@@ -56,7 +56,7 @@ public class Variant1 extends AbstractOperatorGroup {
     }
   }
 
-  public void addAnalyserInputStream(SingleOutputStreamOperator<Measurement> inputStream) {
+  public void addAnalyserInputStream(SingleOutputStreamOperator<Event> inputStream) {
     DataStream<Metrics> stream = inputStream.getSideOutput(toAnalyser);
     if (analyserInputDataStreams == null) {
       analyserInputDataStreams = stream;
@@ -66,7 +66,7 @@ public class Variant1 extends AbstractOperatorGroup {
   }
 
   @Override
-  public void addInputStream(DataStream<Measurement> inputStream) {
+  public void addInputStream(DataStream<Event> inputStream) {
     if (inputDataStreams == null) {
       inputDataStreams = inputStream;
     } else {

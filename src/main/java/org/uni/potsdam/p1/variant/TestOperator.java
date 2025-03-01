@@ -2,12 +2,12 @@ package org.uni.potsdam.p1.variant;
 
 import org.apache.flink.streaming.api.functions.co.CoProcessFunction;
 import org.apache.flink.util.Collector;
-import org.uni.potsdam.p1.types.Measurement;
+import org.uni.potsdam.p1.types.Event;
 import org.uni.potsdam.p1.types.OperatorInfo;
-import org.uni.potsdam.p1.types.outputTags.MeasurementOutput;
+import org.uni.potsdam.p1.types.outputTags.EventOutput;
 import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
 
-public class TestOperator extends CoProcessFunction<Measurement,String,Measurement> {
+public class TestOperator extends CoProcessFunction<Event,String, Event> {
 
   TestCore core;
 
@@ -16,16 +16,16 @@ public class TestOperator extends CoProcessFunction<Measurement,String,Measureme
   }
 
   @Override
-  public void processElement1(Measurement value, CoProcessFunction<Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
+  public void processElement1(Event value, CoProcessFunction<Event, String, Event>.Context ctx, Collector<Event> out) throws Exception {
     core.processWithContext(value, ctx);
   }
 
   @Override
-  public void processElement2(String value, CoProcessFunction<Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
+  public void processElement2(String value, CoProcessFunction<Event, String, Event>.Context ctx, Collector<Event> out) throws Exception {
     core.processMessages(value, ctx);
   }
 
-  public TestOperator setSideOutput(String operatorName, MeasurementOutput whereTo) {
+  public TestOperator setSideOutput(String operatorName, EventOutput whereTo) {
     core.setSideOutput(operatorName, whereTo);
     return this;
   }

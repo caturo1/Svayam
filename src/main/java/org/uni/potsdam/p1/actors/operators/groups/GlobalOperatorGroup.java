@@ -8,10 +8,10 @@ import org.uni.potsdam.p1.actors.operators.tools.Analyser;
 import org.uni.potsdam.p1.actors.operators.tools.SourceCounter;
 import org.uni.potsdam.p1.execution.Settings;
 import org.uni.potsdam.p1.types.EventPattern;
-import org.uni.potsdam.p1.types.Measurement;
+import org.uni.potsdam.p1.types.Event;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
-import org.uni.potsdam.p1.types.outputTags.MeasurementOutput;
+import org.uni.potsdam.p1.types.outputTags.EventOutput;
 import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
 import org.uni.potsdam.p1.types.outputTags.StringOutput;
 
@@ -51,7 +51,7 @@ public class GlobalOperatorGroup extends AbstractOperatorGroup {
   public KafkaSink<String> globalChannelOut;
   public final StringOutput fromMessenger;
 
-  public SingleOutputStreamOperator<Measurement> counterDataStream;
+  public SingleOutputStreamOperator<Event> counterDataStream;
   public SingleOutputStreamOperator<Metrics> analyserStream;
 
   /**
@@ -76,7 +76,7 @@ public class GlobalOperatorGroup extends AbstractOperatorGroup {
   public void setOutputs(Map<String, AbstractOperatorGroup> operatorGroupMap) {
     for (EventPattern pattern : operatorInfo.patterns) {
       for (String operatorName : pattern.downstreamOperators) {
-        MeasurementOutput current = operatorGroupMap.get(operatorName).toThisOperator;
+        EventOutput current = operatorGroupMap.get(operatorName).toThisOperator;
         operator.setSideOutput(operatorName, current);
       }
     }

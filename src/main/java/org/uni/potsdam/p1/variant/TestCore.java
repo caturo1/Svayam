@@ -3,8 +3,8 @@ package org.uni.potsdam.p1.variant;
 import org.apache.flink.streaming.api.functions.co.CoProcessFunction;
 import org.uni.potsdam.p1.actors.measurers.Measurer;
 import org.uni.potsdam.p1.actors.operators.cores.OperatorCore;
+import org.uni.potsdam.p1.types.Event;
 import org.uni.potsdam.p1.types.EventPattern;
-import org.uni.potsdam.p1.types.Measurement;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
 import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
@@ -13,7 +13,7 @@ import java.util.*;
 
 public class TestCore extends OperatorCore {
 
-  CoProcessFunction<Measurement, String, Measurement>.Context ctx;
+  CoProcessFunction<Event, String, Event>.Context ctx;
   public Set<MetricsOutput> downstreamAnalysers;
 
   public TestCore(OperatorInfo operatorInfo) {
@@ -22,7 +22,7 @@ public class TestCore extends OperatorCore {
   }
 
   @Override
-  protected void processSideOutputs(EventPattern pattern, Measurement value) {
+  protected void processSideOutputs(EventPattern pattern, Event value) {
     for (String downstreamOp : pattern.downstreamOperators) {
       ctx.output(extraOutputs.get(downstreamOp), value);
     }
@@ -41,26 +41,26 @@ public class TestCore extends OperatorCore {
     }
   }
 
-  public void updateAndForward(Measurer<?> measurer, Set<MetricsOutput> metricsOutput, CoProcessFunction<Measurement, String, Measurement>.Context ctx) {
+  public void updateAndForward(Measurer<?> measurer, Set<MetricsOutput> metricsOutput, CoProcessFunction<Event, String, Event>.Context ctx) {
     Metrics currentMetrics = measurer.getNewestAverages();
     for(MetricsOutput out : metricsOutput) {
       ctx.output(out,currentMetrics);
     }
   }
 
-  public void updateAndForward(Measurer<?> measurer, MetricsOutput metricsOutput, CoProcessFunction<Measurement, String, Measurement>.Context ctx) {
+  public void updateAndForward(Measurer<?> measurer, MetricsOutput metricsOutput, CoProcessFunction<Event, String, Event>.Context ctx) {
     Metrics currentMetrics = measurer.getNewestAverages();
     if (metricsOutput != null) {
       ctx.output(metricsOutput, currentMetrics);
     }
   }
 
-  public void processWithContext(Measurement value, CoProcessFunction<Measurement, String, Measurement>.Context ctx) {
+  public void processWithContext(Event value, CoProcessFunction<Event, String, Event>.Context ctx) {
     this.ctx = ctx;
     super.process(value);
   }
 
-  public void processMessages(String value, CoProcessFunction<Measurement, String, Measurement>.Context ctx) {
+  public void processMessages(String value, CoProcessFunction<Event, String, Event>.Context ctx) {
 
     if(isShedding && value.equals(operator.name )) {
       isShedding = false;

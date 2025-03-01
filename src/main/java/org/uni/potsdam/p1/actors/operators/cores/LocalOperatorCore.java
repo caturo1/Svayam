@@ -3,8 +3,8 @@ package org.uni.potsdam.p1.actors.operators.cores;
 import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.streaming.api.functions.co.KeyedCoProcessFunction;
 import org.uni.potsdam.p1.actors.measurers.Measurer;
+import org.uni.potsdam.p1.types.Event;
 import org.uni.potsdam.p1.types.EventPattern;
-import org.uni.potsdam.p1.types.Measurement;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
 import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
@@ -35,10 +35,10 @@ public class LocalOperatorCore extends OperatorCore {
     lastLambda = operator.controlBatchSize;
   }
 
-  ProcessFunction<Measurement, Measurement>.Context ctx;
+  ProcessFunction<Event, Event>.Context ctx;
 
   @Override
-  protected void processSideOutputs(EventPattern pattern, Measurement value) {
+  protected void processSideOutputs(EventPattern pattern, Event value) {
     for (String downstreamOp : pattern.downstreamOperators) {
       ctx.output(extraOutputs.get(downstreamOp), value);
     }
@@ -118,7 +118,7 @@ public class LocalOperatorCore extends OperatorCore {
    * @param metricsOutput The side output to be used.
    * @param ctx           The context of this operator's ProcessFunction
    */
-  public void updateAndForward(Measurer<?> measurer, MetricsOutput metricsOutput, ProcessFunction<Measurement, Measurement>.Context ctx) {
+  public void updateAndForward(Measurer<?> measurer, MetricsOutput metricsOutput, ProcessFunction<Event, Event>.Context ctx) {
     Metrics currentMetrics = measurer.getNewestAverages();
     if (metricsOutput != null) {
       ctx.output(metricsOutput, currentMetrics);
@@ -126,7 +126,7 @@ public class LocalOperatorCore extends OperatorCore {
   }
 
   /**
-   * Processes each Measurement event in all patterns of this operator, for which the
+   * Processes each event in all patterns of this operator, for which the
    * pattern-specific shedding rate is greater than a pseudo-random value. Measures and
    * updates the processing time as well as the processing and output rates.
    *
@@ -136,7 +136,7 @@ public class LocalOperatorCore extends OperatorCore {
    *              timers and querying the time. The context is only valid during the invocation of this
    *              method, do not store it.
    */
-  public void processWithContext(Measurement value, ProcessFunction<Measurement, Measurement>.Context ctx) {
+  public void processWithContext(Event value, ProcessFunction<Event, Event>.Context ctx) {
     this.ctx = ctx;
     super.process(value);
   }

@@ -3,7 +3,7 @@ package org.uni.potsdam.p1.actors.operators.groups;
 import org.uni.potsdam.p1.actors.operators.BasicOperator;
 import org.uni.potsdam.p1.types.EventPattern;
 import org.uni.potsdam.p1.types.OperatorInfo;
-import org.uni.potsdam.p1.types.outputTags.MeasurementOutput;
+import org.uni.potsdam.p1.types.outputTags.EventOutput;
 
 import java.util.Map;
 
@@ -29,7 +29,7 @@ public class BasicOperatorGroup extends AbstractOperatorGroup {
 
     outputDataStream = inputDataStreams
       .process(operator)
-//      .slotSharingGroup(opName)
+      .slotSharingGroup(opName)
       .name("Operator_" + opName);
 
   }
@@ -37,7 +37,7 @@ public class BasicOperatorGroup extends AbstractOperatorGroup {
   public void setOutputs(Map<String, AbstractOperatorGroup> operatorGroupMap) {
     for (EventPattern pattern : operatorInfo.patterns) {
       for (String operatorName : pattern.downstreamOperators) {
-        MeasurementOutput current = operatorGroupMap.get(operatorName).toThisOperator;
+        EventOutput current = operatorGroupMap.get(operatorName).toThisOperator;
         operator.setSideOutput(operatorName, current);
       }
     }

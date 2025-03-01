@@ -4,7 +4,7 @@ import org.apache.flink.streaming.api.functions.co.CoProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 import org.uni.potsdam.p1.actors.measurers.CountingMeasurer;
-import org.uni.potsdam.p1.types.Measurement;
+import org.uni.potsdam.p1.types.Event;
 import org.uni.potsdam.p1.types.OperatorInfo;
 import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
 
@@ -17,7 +17,7 @@ import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
  * function properly. This can be done using the constructor or with the
  * {@link SourceCounter#setMetricsOutput(String, MetricsOutput)} method.
  */
-public class SourceCounter extends CoProcessFunction<Measurement, String, Measurement> {
+public class SourceCounter extends CoProcessFunction<Event, String, Event> {
 
   // define outputTags for the side-outputs
   MetricsOutput inputRates;
@@ -83,7 +83,7 @@ public class SourceCounter extends CoProcessFunction<Measurement, String, Measur
    * @throws Exception Flink's exception happens
    */
   @Override
-  public void processElement1(Measurement value, CoProcessFunction<Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
+  public void processElement1(Event value, CoProcessFunction<Event, String, Event>.Context ctx, Collector<Event> out) throws Exception {
     inputRateMeasurer.update(value.getTypeAsKey());
     out.collect(value);
     if (inputRateMeasurer.isReady()) {
@@ -103,7 +103,7 @@ public class SourceCounter extends CoProcessFunction<Measurement, String, Measur
    * @throws Exception Flink's exception happens
    */
   @Override
-  public void processElement2(String value, CoProcessFunction<Measurement, String, Measurement>.Context ctx, Collector<Measurement> out) throws Exception {
+  public void processElement2(String value, CoProcessFunction<Event, String, Event>.Context ctx, Collector<Event> out) throws Exception {
     if (value.equals("snap")) {
       ctx.output(sosOutput, inputRateMeasurer.getMetrics());
     } else {

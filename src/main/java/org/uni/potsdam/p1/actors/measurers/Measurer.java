@@ -19,7 +19,6 @@ public abstract class Measurer<T> implements Serializable {
   public int batchSize;
   public Deque<T> runningQueue;
   public long[] countArray;
-  public long[] storeArray;
   public int accessIndex = 0;
   public Metrics results;
 
@@ -46,7 +45,6 @@ public abstract class Measurer<T> implements Serializable {
   Measurer(String operatorName, String[] eventTypes, String metricName, int batchSize) {
     this.batchSize = batchSize;
     runningQueue = new ArrayDeque<>(batchSize);
-    storeArray = new long[batchSize];
     int size = eventTypes.length;
     countArray = new long[size];
     results = new Metrics(operatorName, metricName, size + 2);
@@ -91,12 +89,12 @@ public abstract class Measurer<T> implements Serializable {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
     Measurer<?> measurer = (Measurer<?>) o;
-    return batchSize == measurer.batchSize && accessIndex == measurer.accessIndex && Objects.equals(indexer, measurer.indexer) && Objects.equals(runningQueue, measurer.runningQueue) && Objects.deepEquals(countArray, measurer.countArray) && Objects.deepEquals(storeArray, measurer.storeArray) && Objects.equals(results, measurer.results);
+    return batchSize == measurer.batchSize && accessIndex == measurer.accessIndex && Objects.equals(indexer, measurer.indexer) && Objects.equals(runningQueue, measurer.runningQueue) && Objects.deepEquals(countArray, measurer.countArray) /*&& Objects.deepEquals(storeArray, measurer.storeArray)*/ && Objects.equals(results, measurer.results);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(indexer, batchSize, runningQueue, Arrays.hashCode(countArray), Arrays.hashCode(storeArray), accessIndex, results);
+    return Objects.hash(indexer, batchSize, runningQueue, Arrays.hashCode(countArray)/*, Arrays.hashCode(storeArray)*/, accessIndex, results);
   }
 
   abstract void calculateNewestAverages(int queueSize);
