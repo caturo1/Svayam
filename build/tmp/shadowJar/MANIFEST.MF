@@ -1,5 +1,0 @@
-Manifest-Version: 1.0
-Built-By: olaf-link
-Build-Jdk: 21.0.4
-Main-Class: org.uni.potsdam.p1.DataStreamJob
-
