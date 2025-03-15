@@ -123,7 +123,7 @@ public class EventPattern implements Serializable {
       } else if (kind.equals("SEQ")) {
         weightMap = Arrays.stream(split)
           .collect(Collectors.groupingBy(
-              (String string) -> string.substring(0, string.indexOf("|")),
+            (String string) -> string.substring(0, string.indexOf("|")),
               Collectors.mapping(
                 (String string) -> Integer.parseInt(string.substring(string.indexOf("|") + 1)),
                 Collectors.reducing(0, Integer::sum)

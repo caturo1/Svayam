@@ -15,9 +15,7 @@ import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
 import java.io.Serializable;
 import java.time.Duration;
 import java.time.LocalTime;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 /**
  * This class contains the basic implementation of an operator, setting its measurers,
@@ -57,6 +55,7 @@ public abstract class OperatorCore implements Serializable {
   // set additional operator information
   public OperatorInfo operator;
   public Map<String, FSMProcessor> processors;
+  public double factor = 1;
 
   @Override
   public boolean equals(Object o) {
@@ -98,8 +97,10 @@ public abstract class OperatorCore implements Serializable {
     // initialise shedding shares
     sheddingRates = new Metrics(groupName, "shares", inputTypes.length * outputTypes.length + 1);
     for (String inputType : inputTypes) {
-      for (String outType : outputTypes) {
-        sheddingRates.put(outType + "_" + inputType, 0.);
+      for (EventPattern pattern : operator.patterns) {
+        if(pattern.getWeightMaps().containsKey(inputType)) {
+          sheddingRates.put(pattern.name + "_" + inputType, 0.);
+        }
       }
     }
   }
@@ -151,6 +152,9 @@ public abstract class OperatorCore implements Serializable {
    * @param value Latest read event.
    */
   public void process(Event value) {
+    if(!operator.typeChecker.contains(value.type)) {
+      return;
+    }
     LocalTime begin = LocalTime.now();
     for (EventPattern pattern : operator.patterns) {
       boolean dropPattern = isShedding && sheddingRates.get(pattern.name + "_" + value.type) > Math.random();
@@ -162,7 +166,7 @@ public abstract class OperatorCore implements Serializable {
         if (event != null) {
           outputRateMeasurer.update(pattern.name);
           processSideOutputs(pattern, event);
-          opLog.info(event.toJson(operator.name));
+          opLog.info(event.toString(operator.name));
         }
       }
       processingTimesMeasurer.updatePatternTime(pattern.name, Duration.between(start, LocalTime.now()).toNanos());

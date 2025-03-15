@@ -87,12 +87,10 @@ public class FSMOperator extends CoProcessFunction<Event, String, Event> {
    *              timers and querying the time. The context is only valid during the invocation of this
    *              method, do not store it.
    * @param out   The collector to emit resulting elements (not utilized)
-   * @throws Exception Error in the flink's thread execution.
    */
   @Override
-  public void processElement1(Event value, CoProcessFunction<Event, String, Event>.Context ctx, Collector<Event> out) throws Exception {
+  public void processElement1(Event value, CoProcessFunction<Event, String, Event>.Context ctx, Collector<Event> out) {
     core.processWithContext(value, ctx);
-
   }
 
   /**
@@ -106,10 +104,9 @@ public class FSMOperator extends CoProcessFunction<Event, String, Event> {
    *              timers and querying the time. The context is only valid during the invocation of this
    *              method, do not store it.
    * @param out   The collector to emit resulting elements to
-   * @throws Exception Flink's error
    */
   @Override
-  public void processElement2(String value, CoProcessFunction<Event, String, Event>.Context ctx, Collector<Event> out) throws Exception {
+  public void processElement2(String value, CoProcessFunction<Event, String, Event>.Context ctx, Collector<Event> out) {
     core.processMessages(value, ctx);
 
   }

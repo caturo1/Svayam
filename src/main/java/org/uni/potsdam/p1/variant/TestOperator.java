@@ -7,7 +7,8 @@ import org.uni.potsdam.p1.types.OperatorInfo;
 import org.uni.potsdam.p1.types.outputTags.EventOutput;
 import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
 
-public class TestOperator extends CoProcessFunction<Event,String, Event> {
+public class TestOperator
+  extends CoProcessFunction<Event,String, Event> {
 
   TestCore core;
 
@@ -16,12 +17,12 @@ public class TestOperator extends CoProcessFunction<Event,String, Event> {
   }
 
   @Override
-  public void processElement1(Event value, CoProcessFunction<Event, String, Event>.Context ctx, Collector<Event> out) throws Exception {
+  public void processElement1(Event value, CoProcessFunction<Event, String, Event>.Context ctx, Collector<Event> out) {
     core.processWithContext(value, ctx);
   }
 
   @Override
-  public void processElement2(String value, CoProcessFunction<Event, String, Event>.Context ctx, Collector<Event> out) throws Exception {
+  public void processElement2(String value, CoProcessFunction<Event, String, Event>.Context ctx, Collector<Event> out) {
     core.processMessages(value, ctx);
   }
 
@@ -34,4 +35,5 @@ public class TestOperator extends CoProcessFunction<Event,String, Event> {
     core.setMetricsOutput(metric, whereTo);
     return this;
   }
+
 }

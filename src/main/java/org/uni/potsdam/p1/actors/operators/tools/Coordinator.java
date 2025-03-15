@@ -120,25 +120,20 @@ public class Coordinator extends ProcessFunction<Metrics, String> {
       double p = Arrays.stream(overloadedOperatorInfo.inputTypes).map(inputType -> (totalInputRate>0.?overloadedOperatorInfo.getMetric("lambdaIn").get(inputType) / totalInputRate:0) * totalProcessingTime).reduce(0., Double::sum);
       double pStar = 1 / ((1 / bound) + totalInputRate);
       MPConstraint timeConstraint = solver.makeConstraint(p - pStar, MPSolver.infinity(), "time_constraint");
-      double ptime = overloadedOperatorInfo.getMetric("ptime").get(overloadedOperatorInfo.patterns[0].name);
 
       /*
        * Create decision variables for the overloaded operator (creates x-dvs for every input type of every pattern in the range [0,1])
        * and add them to the time constraint.
        */
-      String patternName = overloadedOperatorInfo.patterns[0].name;
-      for (int i = 0, indexPatterns = 0; i < numberOfInputs * numberOfPatterns; i++) {
-        String type = overloadedOperatorInfo.inputTypes[i % numberOfInputs];
-        String variableName = patternName + "_" + type;
-        MPVariable xDv = solver.makeNumVar(0., 1., variableName);
-        patternsDvs.put(variableName, xDv);
-        xDvList.add(xDv);
-        double factor = (overloadedOperatorInfo.getMetric("lambdaIn").get(type) / totalInputRate) * ptime;
-        timeConstraint.setCoefficient(xDv, factor);
-
-        if ((i + 1) % numberOfInputs == 0 && indexPatterns < numberOfPatterns - 1) {
-          ptime = overloadedOperatorInfo.getMetric("ptime").get(overloadedOperatorInfo.patterns[++indexPatterns].name);
-          patternName = overloadedOperatorInfo.patterns[indexPatterns].name;
+      for(EventPattern pattern : overloadedOperatorInfo.patterns) {
+        double ptime = overloadedOperatorInfo.getMetric("ptime").get(pattern.name);
+        for(String inputType : pattern.getWeightMaps().keySet()){
+          String variableName = pattern.name + "_" + inputType;
+          MPVariable xDv = solver.makeNumVar(0., 1., variableName);
+          patternsDvs.put(variableName, xDv);
+          xDvList.add(xDv);
+          double factor = (overloadedOperatorInfo.getMetric("lambdaIn").get(inputType) / totalInputRate) * ptime;
+          timeConstraint.setCoefficient(xDv, factor);
         }
       }
 
@@ -202,11 +197,11 @@ public class Coordinator extends ProcessFunction<Metrics, String> {
              *     input type ( input type originate from an operator in the tree being
              *     traversed).
              *      AND/SEQ:
-             *           y_out <= y_in * lambdaIn * (1 / eventsInPattern)
-             *        => y_out * eventsInPattern - y_in * lambdaIn <= 0
+             *           y_out <= y_in * (1 / eventsInPattern)
+             *        => y_out * eventsInPattern - y_in <= 0
              *      OR:
-             *           y_out >= y_in * lambdaIn * (1 / eventsInPattern)
-             *        => y_out * eventsInPattern - y_in * lambdaIn >= 0
+             *           y_out >= y_in * (1 / eventsInPattern)
+             *        => y_out * eventsInPattern - y_in >= 0
              */
             double factor = currentNode.getValue("lambdaIn", inputType);
             double bound = factor;
@@ -247,7 +242,7 @@ public class Coordinator extends ProcessFunction<Metrics, String> {
             MPConstraint orConstraint = solver.makeConstraint(-infinity, orBound, currentNode.name + "_or");
             orConstraint.setCoefficient(patternYDv, 1);
             for (String dv : orSet) {
-              orConstraint.setCoefficient(patternsDvs.get(dv), isOverloadedOp ? currentNode.getValue("lambdaIn", dv.substring(patternName.length() + 1)) : -1);
+              orConstraint.setCoefficient(patternsDvs.get(dv), isOverloadedOp ? currentNode.getValue("lambdaIn", dv.substring(currentPattern.name.length() + 1)) : -1);
             }
           }
 
@@ -313,7 +308,7 @@ public class Coordinator extends ProcessFunction<Metrics, String> {
 
       // end work - clear information from the OperatorInfo instances and fetch the next job if available
       operatorsList[indexer.get(lastOverloadedOperator)].isOverloaded = false;
-      out.collect(lastOverloadedOperator + ": Ready with:\n" + this + "\n" + output);
+//      out.collect(lastOverloadedOperator + ": Ready with:\n" + this + "\n" + output);
       clear();
       jobQueue.remove(lastOverloadedOperator);
       if (!jobQueue.isEmpty()) {

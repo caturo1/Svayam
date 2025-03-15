@@ -14,7 +14,7 @@ import org.uni.potsdam.p1.actors.operators.groups.*;
 import org.uni.potsdam.p1.actors.operators.tools.Coordinator;
 import org.uni.potsdam.p1.actors.operators.tools.Messenger;
 import org.uni.potsdam.p1.actors.sources.Source;
-import org.uni.potsdam.p1.actors.sources.SourceLogger;
+import org.uni.potsdam.p1.hybrid.Hybrid2;
 import org.uni.potsdam.p1.types.EventPattern;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
@@ -63,7 +63,6 @@ public class OperatorGraph extends Settings {
   public String KAFKA_ADDRESS;
   public KafkaSource<String> globalChannelIn;
   public KafkaSink<String> globalChannelOut;
-  public KafkaSink<String> control;
   public StringOutput toKafka;
 
 
@@ -81,15 +80,16 @@ public class OperatorGraph extends Settings {
     for (Source source : sources) {
       this.sources.put(source.name, source);
     }
-    if (SCOPE == Scope.GLOBAL || SCOPE == Scope.VARIANT) {
+    if (SCOPE == Scope.GLOBAL || SCOPE == Scope.VARIANT || SCOPE == Scope.HYBRID) {
       KAFKA_ADDRESS = "kafka:9092";
       toKafka = new StringOutput("out_to_kafka");
-      globalChannelIn = KafkaSource.<String>builder()
-        .setBootstrapServers(KAFKA_ADDRESS)
-        .setTopics("global")
-        .setStartingOffsets(OffsetsInitializer.latest())
-        .setValueOnlyDeserializer(new SimpleStringSchema())
-        .build();
+      globalChannelIn =
+        KafkaSource.<String>builder()
+          .setBootstrapServers(KAFKA_ADDRESS)
+          .setTopics("global")
+          .setStartingOffsets(OffsetsInitializer.latest())
+          .setValueOnlyDeserializer(new SimpleStringSchema())
+          .build();
 
       globalChannelOut = KafkaSink.<String>builder()
         .setBootstrapServers(KAFKA_ADDRESS)
@@ -100,14 +100,6 @@ public class OperatorGraph extends Settings {
         )
         .build();
 
-      control = KafkaSink.<String>builder()
-        .setBootstrapServers(KAFKA_ADDRESS)
-        .setRecordSerializer(KafkaRecordSerializationSchema.builder()
-          .setTopic("globalOut")
-          .setValueSerializationSchema(new SimpleStringSchema())
-          .build()
-        )
-        .build();
       coordinator = new Coordinator(toKafka, LATENCY_BOUND, operators);
       toCoordinator = new MetricsOutput("out_to_coordinator");
 
@@ -125,6 +117,10 @@ public class OperatorGraph extends Settings {
         newGroup = new LocalOperatorGroup(operator);
       } else if (SCOPE == Scope.VARIANT) {
         newGroup = new Variant1(operator)
+          .connectToCoordinator(toCoordinator)
+          .connectToKafka(toKafka, globalChannelOut);
+      } else if (SCOPE == Scope.HYBRID) {
+        newGroup = new Hybrid2(operator)
           .connectToCoordinator(toCoordinator)
           .connectToKafka(toKafka, globalChannelOut);
       } else {
@@ -149,10 +145,10 @@ public class OperatorGraph extends Settings {
 
     // start execution environment
     final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-    if (SCOPE == Scope.GLOBAL || SCOPE == Scope.VARIANT) {
+    if (SCOPE == Scope.GLOBAL || SCOPE == Scope.VARIANT || SCOPE == Scope.HYBRID) {
       // define a keyed data stream with which the operators send their information to the coordinator
       global = env.fromSource(globalChannelIn, WatermarkStrategy.noWatermarks(), "global")
-        .process(new Messenger(operators,SCOPE))
+        .process(new Messenger(operators, SCOPE))
 //        .slotSharingGroup("Messenger")
         .name("Messenger");
     }
@@ -161,10 +157,6 @@ public class OperatorGraph extends Settings {
       source.createDataStream(env);
       for (String opDownStream : source.downstreamOperators) {
         operators.get(opDownStream).addInputStream(source.sourceStream);
-      }
-      if (LOG_SOURCES) {
-        source.sourceStream.process(new SourceLogger(source.name))
-          .name("Logger");
       }
     }
 
@@ -178,21 +170,28 @@ public class OperatorGraph extends Settings {
       } else if (SCOPE == Scope.VARIANT) {
         ((Variant1) current).createDataStream(global);
         streamToCoordinator = ((Variant1) current).gatherMetrics(streamToCoordinator);
+      } else if (SCOPE == Scope.HYBRID) {
+        ((Hybrid2) current).createDataStream(global);
+        streamToCoordinator = ((Variant1) current).gatherMetrics(streamToCoordinator);
       } else {
         ((BasicOperatorGroup) current).createDataStream();
       }
       for (EventPattern pattern : current.operatorInfo.patterns) {
         for (String opDownStream : pattern.downstreamOperators) {
           operators.get(opDownStream).addInputStream(current.outputDataStream);
-          if(SCOPE == Scope.VARIANT) {
+          if (SCOPE == Scope.VARIANT) {
             Variant1 downstreamOp = (Variant1) operators.get(opDownStream);
+            downstreamOp.addAnalyserInputStream(current.outputDataStream);
+          }
+          if (SCOPE == Scope.HYBRID) {
+            Hybrid2 downstreamOp = (Hybrid2) operators.get(opDownStream);
             downstreamOp.addAnalyserInputStream(current.outputDataStream);
           }
         }
       }
     }
 
-    if (SCOPE == Scope.GLOBAL || SCOPE == Scope.VARIANT) {
+    if (SCOPE == Scope.GLOBAL || SCOPE == Scope.VARIANT || SCOPE == Scope.HYBRID) {
 
       // execute coordinator
       SingleOutputStreamOperator<String> coordinatorOutput = streamToCoordinator
@@ -202,9 +201,6 @@ public class OperatorGraph extends Settings {
 
       // store shedding rates in kafka
       coordinatorOutput.getSideOutput(toKafka).sinkTo(globalChannelOut);
-
-      // output stream for debugging - returns the results of the coordinator
-//      coordinatorOutput.sinkTo(control);
     }
 
     return env.execute("Flink Java CEP Prototype");

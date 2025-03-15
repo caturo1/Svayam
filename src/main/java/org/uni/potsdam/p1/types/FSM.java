@@ -2,6 +2,7 @@ package org.uni.potsdam.p1.types;
 
 import org.uni.potsdam.p1.actors.processors.FSMProcessor;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -93,7 +94,7 @@ public class FSM {
    * @return True if this instance contains one or more events in the set.
    */
   public boolean contains(Set<Event> events) {
-    return participants.removeAll(events);
+    return !Collections.disjoint(participants,events);
   }
 
   /**
@@ -112,9 +113,6 @@ public class FSM {
 
   @Override
   public String toString() {
-    return "FSM{" +
-      "participants=" + participants +
-      ", startTime=" + startTime +
-      '}';
+    return participants.toString();
   }
 }

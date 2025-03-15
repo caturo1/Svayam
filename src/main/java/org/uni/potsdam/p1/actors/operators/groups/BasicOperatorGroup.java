@@ -26,11 +26,14 @@ public class BasicOperatorGroup extends AbstractOperatorGroup {
    */
   public void createDataStream() {
     String opName = operatorInfo.name;
+    String executionGroup = operatorInfo.executionGroup;
 
     outputDataStream = inputDataStreams
       .process(operator)
-      .slotSharingGroup(opName)
       .name("Operator_" + opName);
+    if(executionGroup!= null) {
+      outputDataStream.slotSharingGroup(executionGroup);
+    }
 
   }
 

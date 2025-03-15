@@ -11,10 +11,12 @@ import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
 
 import java.util.*;
 
-public class TestCore extends OperatorCore {
+public class TestCore
+  extends OperatorCore {
 
   CoProcessFunction<Event, String, Event>.Context ctx;
   public Set<MetricsOutput> downstreamAnalysers;
+  public boolean wasVisited = false;
 
   public TestCore(OperatorInfo operatorInfo) {
     super(operatorInfo);
@@ -34,6 +36,9 @@ public class TestCore extends OperatorCore {
       updateAndForward(processingTimesMeasurer, processingTimes, ctx);
       updateAndForward(processingRateMeasurer, processingRates, ctx);
       opLog.info(String.format("{\"ptime\":%f,\"time\":%d,\"name\":\"%s\"}", processingTimesMeasurer.results.get("total"), System.currentTimeMillis(), operator.name));
+      double upperBound = 1 / ((1 / operator.latencyBound) + processingRateMeasurer.getTotalAverageRate());
+      double lowerBound = upperBound * 0.9;
+      factor = processingTimesMeasurer.results.get("total") / lowerBound;
     }
 
     if (outputRateMeasurer.isReady()) {
@@ -43,8 +48,8 @@ public class TestCore extends OperatorCore {
 
   public void updateAndForward(Measurer<?> measurer, Set<MetricsOutput> metricsOutput, CoProcessFunction<Event, String, Event>.Context ctx) {
     Metrics currentMetrics = measurer.getNewestAverages();
-    for(MetricsOutput out : metricsOutput) {
-      ctx.output(out,currentMetrics);
+    for (MetricsOutput out : metricsOutput) {
+      ctx.output(out, currentMetrics);
     }
   }
 
@@ -62,9 +67,11 @@ public class TestCore extends OperatorCore {
 
   public void processMessages(String value, CoProcessFunction<Event, String, Event>.Context ctx) {
 
-    if(isShedding && value.equals(operator.name )) {
-      isShedding = false;
-      opLog.info(operator.getSheddingInfo(isShedding));
+    if (value.equals(operator.name)) {
+      if (isShedding) {
+        isShedding = false;
+        opLog.info(operator.getSheddingInfo(isShedding, sheddingRates));
+      }
       return;
     }
     if (value.equals("snap")) {
@@ -73,17 +80,33 @@ public class TestCore extends OperatorCore {
 
     } else {
       int index = value.indexOf(":");
-      if (index > 0 && value.substring(0, index).equals(operator.name)) {
-        for (String share : value.substring(index + 1).split(":")) {
-          int separationIndex = share.indexOf("|");
-          String currentShare = share.substring(separationIndex + 1);
-          double shareNumber = Double.parseDouble(currentShare);
-          sheddingRates.put(share.substring(0, separationIndex),shareNumber);
+      int len = value.length();
+      boolean forward = true;
+      boolean comesFromAnalyser = value.endsWith("A");
+      if (comesFromAnalyser) {
+        wasVisited = true;
+        forward = false;
+        len--;
+        isShedding = true;
+      }
+      for (String share : value.substring(index + 1, len).split(":")) {
+        int separationIndex = share.indexOf("|");
+        String currentShare = share.substring(separationIndex + 1);
+        double shareNumber;
+        try {
+          shareNumber = Double.parseDouble(currentShare);
+        } catch (NumberFormatException e) {
+          System.err.println("Problem with " + currentShare);
+          System.err.println(value);
+          throw e;
         }
-        if (!isShedding) {
-          isShedding = true;
-          opLog.info(operator.getSheddingInfo(isShedding));
-        }
+        sheddingRates.put(share.substring(0, separationIndex), Math.min(0.9,factor*shareNumber));
+      }
+      if (!isShedding && !wasVisited) {
+        isShedding = true;
+      }
+      opLog.info(operator.getSheddingInfo(isShedding, sheddingRates) + (comesFromAnalyser ? "A" : ""));
+      if (forward) {
         ctx.output(processingTimes, sheddingRates);
       }
     }
@@ -109,4 +132,5 @@ public class TestCore extends OperatorCore {
       }
     }
   }
+
 }

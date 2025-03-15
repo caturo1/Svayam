@@ -1,7 +1,10 @@
 package org.uni.potsdam.p1.types;
 
 import java.io.Serializable;
+import java.time.Instant;
 import java.util.Objects;
+
+import static org.uni.potsdam.p1.execution.Settings.FACTOR;
 
 /**
  * This class is the main abstraction of the DataStreamJob, representing a CPU-Event
@@ -10,7 +13,6 @@ import java.util.Objects;
 public class Event implements Serializable {
   public final String type;
   public final long eventTime;
-  public String[] attributes;
   public String id;
 
   /**
@@ -34,10 +36,16 @@ public class Event implements Serializable {
     eventTime = System.currentTimeMillis();
     id = System.nanoTime()+"";
   }
-
-  public Event(String type,String[] attributes) {
-    this(type);
-    this.attributes = attributes;
+  /**
+   * Constructs a new event of a given type and with a predetermined timestamp.
+   *
+   * @param type Type of the new event
+   * @param time Timestamp of the event
+   */
+  public Event(String type, Instant time) {
+    this.type = type;
+    eventTime = time.toEpochMilli();
+    id = System.nanoTime()+"";
   }
 
   /**
@@ -49,9 +57,6 @@ public class Event implements Serializable {
     this(types[(int) (Math.random() * types.length)]);
   }
 
-  public void setAttributes(String[] attributes) {
-    this.attributes = attributes;
-  }
 
   /**
    * Constructs a new event of a given type in a given range
@@ -72,13 +77,19 @@ public class Event implements Serializable {
     this.id = id;
   }
 
+  public Event(String type, String id,Instant time) {
+    this.type = type;
+    this.eventTime = time.plusSeconds(1).plusNanos(FACTOR).toEpochMilli();
+    this.id = id;
+  }
+
 
   @Override
   public String toString() {
-    return "{\"type\":"+type + ",\"time\":" + eventTime + "}";
+    return "{\"type\":" + type + ",\"time\":" + eventTime + ",\"id\":\""+id+"\"}";
   }
 
-  public String toJson(String name) {
+  public String toString(String name) {
     return "{\"type\":" + type + ",\"time\":" + eventTime + ",\"name\":\"" + name + "\",\"id\":\""+id+"\"}";
   }
 

@@ -47,7 +47,7 @@ public class Metrics implements Serializable {
   }
 
   public Double get(String key) {
-    return map.get(key);
+    return map.getOrDefault(key,1.);
   }
 
   public Set<Map.Entry<String, Double>> entrySet() {

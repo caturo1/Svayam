@@ -22,7 +22,7 @@ import java.util.*;
  * </p>
  */
 public abstract class FSMProcessor implements Serializable {
-  public List<FSM> currentFSMs;
+  public LinkedHashSet<FSM> currentFSMs;
   public String patternType;
   public String[] parameters;
   public int timeWindow;
@@ -50,7 +50,7 @@ public abstract class FSMProcessor implements Serializable {
   public FSMProcessor(String patternType, int timeWindow, String... parameters) {
     this.parameters = parameters;
     this.patternType = patternType;
-    currentFSMs = new ArrayList<>(5000);
+    currentFSMs = new LinkedHashSet<>(5000);
     this.timeWindow = timeWindow;
   }
 
@@ -73,12 +73,11 @@ public abstract class FSMProcessor implements Serializable {
    * @return A new event in case of a match or null if no match was possible.
    */
   public Event processElement(Event value) {
-    List<FSM> candidates = new ArrayList<>(100);
-    List<FSM> toDelete = new ArrayList<>();
+    Collection<FSM> candidates = new ArrayList<>(100);
+    Collection<FSM> toDelete = new ArrayList<>();
 
-    //TODO test:
-//    boolean isFirst = true;
-//    FSM firstFound = null;
+    boolean isFirst = true;
+    FSM firstFound = null;
     for (FSM current : currentFSMs) {
       if (applyTimeBoundary(current, value)) {
         toDelete.add(current);
@@ -95,25 +94,24 @@ public abstract class FSMProcessor implements Serializable {
             if (fsm == current) {
               return false;
             }
-            return fsm.contains(current.participants);
+            return !Collections.disjoint(fsm.participants,current.participants);
           });
           currentFSMs.remove(current);
-          currentFSMs.removeAll(toDelete);
+          toDelete.forEach(currentFSMs::remove);
           return new Event(patternType, outputId.toString());
         }
         candidates.add(getNextFSM(current, value));
-        //TODO test:
-//        if (isFirst) {
-//        firstFound = current;
-//          isFirst = false;
-//        }
+        if (isFirst) {
+        firstFound = current;
+          isFirst = false;
+        }
       }
     }
-    // if(firstFound!=null){toDelete.add(firstFound);}
+    if(firstFound!=null){toDelete.add(firstFound);}
     if (applyStartCondition(value.type)) {
       currentFSMs.add(getNewFSM(value));
     }
-    currentFSMs.removeAll(toDelete);
+    toDelete.forEach(currentFSMs::remove);
     currentFSMs.addAll(candidates);
     return null;
   }

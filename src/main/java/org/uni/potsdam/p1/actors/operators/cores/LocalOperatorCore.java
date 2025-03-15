@@ -89,13 +89,13 @@ public class LocalOperatorCore extends OperatorCore {
       if (calculatedP > lowerBound || ((pHasChanged || lambdaHasChanged || ptimeHasChanged) && B > bound)) {
         if (!isShedding) {
           isShedding = true;
-          opLog.info(operator.getSheddingInfo(isShedding));
         }
         factor = totalPtime / lowerBound;
         calculateSheddingRate();
-      } else if (isShedding && ((0 < B && B < bound) || totalPtime < lowerBound)) {
+        opLog.info(operator.getSheddingInfo(isShedding,sheddingRates));
+      } else if (isShedding && totalPtime < lowerBound) {
         isShedding = false;
-        opLog.info(operator.getSheddingInfo(isShedding));
+        opLog.info(operator.getSheddingInfo(isShedding,sheddingRates));
       }
       // for debugging
 //      opLog.info("B: " + B + " p: " + calculatedP + " lowerBound:" + lowerBound + " " +
@@ -173,15 +173,13 @@ public class LocalOperatorCore extends OperatorCore {
       }
       String patternKey = eventPattern.name;
       double total = lambdaOuts.get("total");
-      for (String inputType : operator.inputTypes) {
+      for (String inputType : weights.keySet()) {
         double value;
-        if (!weights.containsKey(inputType)) {
-          value = 1;
-        } else if (sum == 0 || total == 0) {
+        if (sum == 0 || total == 0) {
           value = 0;
         } else {
           value = Math.min(1,
-            factor * (mus.get(inputType) / (weights.get(inputType) * sum)) * (lambdaOuts.get(patternKey) / total));// * (ptimes.get(patternKey) / ptimes.get("total")));
+            factor * (mus.get(inputType) / (weights.get(inputType) * sum)) * (lambdaOuts.get(patternKey) / total));
         }
         sheddingRates.put(eventPattern.name + "_" + inputType, value);
       }

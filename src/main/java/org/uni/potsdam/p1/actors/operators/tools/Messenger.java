@@ -4,6 +4,7 @@ import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.util.Collector;
 import org.uni.potsdam.p1.actors.operators.groups.AbstractOperatorGroup;
 import org.uni.potsdam.p1.actors.operators.groups.GlobalOperatorGroup;
+import org.uni.potsdam.p1.hybrid.Hybrid2;
 import org.uni.potsdam.p1.types.Scope;
 import org.uni.potsdam.p1.variant.Variant1;
 import org.uni.potsdam.p1.types.outputTags.StringOutput;
@@ -24,7 +25,9 @@ public class Messenger extends ProcessFunction<String,String> {
     extraOutputs = new HashMap<>(opGroups.size());
     for(Map.Entry<String,AbstractOperatorGroup> entry : opGroups.entrySet()) {
       extraOutputs.put(entry.getKey(),
-        scope == Scope.VARIANT?((Variant1) entry.getValue()).fromMessenger:((GlobalOperatorGroup) entry.getValue()).fromMessenger);
+        scope == Scope.VARIANT?((Variant1) entry.getValue()).fromMessenger:
+          scope == Scope.HYBRID?((Hybrid2) entry.getValue()).fromMessenger:
+            ((GlobalOperatorGroup) entry.getValue()).fromMessenger);
     }
   }
 

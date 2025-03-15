@@ -1,10 +1,8 @@
 package org.uni.potsdam.p1.types;
 
 import java.io.Serializable;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
@@ -39,16 +37,17 @@ public class OperatorInfo implements Serializable {
   public int controlBatchSize;
   public double latencyBound;
   public String executionGroup = null;
+  public Set<String> typeChecker;
+  public HashMap<String, Integer> patternIndexer;
 
   /**
    * Constructs an empty {@link OperatorInfo} instance
    */
   public OperatorInfo() {
-//    String[] metrics = new String[]{"lambdaIn", "lambdaOut", "mu", "ptime"};
-    String[] metrics = new String[]{"lambdaIn", "mu", "ptime"};
-    for (int i = 0; i < metrics.length; i++) {
-      indexer.put(metrics[i], i);
-    }
+   String[] metrics = new String[]{"lambdaIn", "mu", "ptime"};
+   for (int i = 0; i < metrics.length; i++) {
+     indexer.put(metrics[i], i);
+   }
   }
 
   public String[] getOutputTypes() {
@@ -67,6 +66,7 @@ public class OperatorInfo implements Serializable {
     this.controlBatchSize = controlBatchSize;
     this.latencyBound = latencyBound;
     this.outputTypes = Arrays.stream(patterns).map(EventPattern::getName).toArray(String[]::new);
+    typeChecker = Arrays.stream(inputTypes).collect(Collectors.toSet());
   }
 
   @Override
@@ -77,15 +77,6 @@ public class OperatorInfo implements Serializable {
       result.append(toAppend);
     }
     return result.toString();
-  }
-
-  public EventPattern getPattern(String patternName) {
-    for (EventPattern pattern : patterns) {
-      if (pattern.name.equals(patternName)) {
-        return pattern;
-      }
-    }
-    throw new IllegalArgumentException("Pattern not contained in the operator.");
   }
 
   public Metrics getMetric(String metric) {
@@ -193,7 +184,9 @@ public class OperatorInfo implements Serializable {
    * @param types the event types represented as {@link String}
    * @return Reference to the given OperatorInfo-object
    */
-  public OperatorInfo withInputTypes(String... types) {
+  public OperatorInfo withInputTypes(String...types) {
+    typeChecker = new HashSet<>(types.length);
+    Collections.addAll(typeChecker, types);
     this.inputTypes = types;
     return this;
   }
@@ -206,8 +199,8 @@ public class OperatorInfo implements Serializable {
    * @return Reference to the given OperatorInfo-object
    */
   public OperatorInfo withInputTypes(int lowerBound, int upperBound) {
-    this.inputTypes = IntStream.range(lowerBound, upperBound).mapToObj(String::valueOf).toArray(String[]::new);
-    return this;
+     this.inputTypes = IntStream.range(lowerBound, upperBound).mapToObj(String::valueOf).toArray(String[]::new);
+     return this;
   }
 
   /**
@@ -216,7 +209,7 @@ public class OperatorInfo implements Serializable {
    * @param types the event types represented as {@link String}
    * @return Reference to the given OperatorInfo-object
    */
-  public OperatorInfo withInputTypes(Set<Integer> types) {
+  public OperatorInfo withInputTypes(Set<String> types) {
     this.inputTypes = types.stream().map(String::valueOf).toArray(String[]::new);
     return this;
   }
@@ -240,7 +233,13 @@ public class OperatorInfo implements Serializable {
    */
   public OperatorInfo withPatterns(EventPattern... patterns) {
     this.patterns = patterns;
-    this.outputTypes = Arrays.stream(patterns).map(EventPattern::getName).toArray(String[]::new);
+    this.outputTypes = new String[patterns.length];
+    patternIndexer = new HashMap<>(patterns.length);
+    for(int i = 0; i < patterns.length;i++) {
+      EventPattern current = patterns[i];
+      outputTypes[i] = current.name;
+      patternIndexer.put(current.name,i);
+    }
     return this;
   }
 
@@ -261,5 +260,9 @@ public class OperatorInfo implements Serializable {
   public OperatorInfo withExecutionGroup(String group) {
     executionGroup = group;
     return this;
+  }
+
+  public String getSheddingInfo(boolean isShedding, Metrics sheddingRates) {
+    return "{\"isShedding\":" + isShedding + ",\"time\": " + System.currentTimeMillis() + ",\"name\":\"" + name + "\",\"rates\":"+sheddingRates.map+"}";
   }
 }

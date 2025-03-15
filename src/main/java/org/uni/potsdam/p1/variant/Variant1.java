@@ -14,7 +14,8 @@ import org.uni.potsdam.p1.types.outputTags.StringOutput;
 
 import java.util.Map;
 
-public class Variant1 extends AbstractOperatorGroup {
+public class Variant1
+  extends AbstractOperatorGroup {
 
   public final MetricsOutput toAnalyser;
   public final TestOperator operator;
@@ -51,7 +52,7 @@ public class Variant1 extends AbstractOperatorGroup {
         EventOutput downstreamOperator = operatorGroupMap.get(operatorName).toThisOperator;
         operator.setSideOutput(operatorName, downstreamOperator);
         Variant1 downstreamOp = (Variant1) operatorGroupMap.get(operatorName);
-        operator.setMetricsOutput("lambdaOut",downstreamOp.toAnalyser);
+        operator.setMetricsOutput("lambdaOut", downstreamOp.toAnalyser);
       }
     }
   }
@@ -74,8 +75,8 @@ public class Variant1 extends AbstractOperatorGroup {
     }
 
     DataStream<Metrics> sourceOutputRates = inputStream
-    .process(new VariantSourceCounter(operatorInfo))
-//      .slotSharingGroup(operatorInfo.name)
+      .process(new VariantSourceCounter(operatorInfo))
+//      .slotSharingGroup(operatorInfo.executionGroup)
       .name("Source Counter");
     if (analyserInputDataStreams == null) {
       analyserInputDataStreams = sourceOutputRates;
@@ -85,7 +86,7 @@ public class Variant1 extends AbstractOperatorGroup {
 
   }
 
-  public Variant1 connectToKafka(StringOutput toKafka,KafkaSink<String> globalChannelOut) {
+  public Variant1 connectToKafka(StringOutput toKafka, KafkaSink<String> globalChannelOut) {
     this.analyser.toKafka = toKafka;
     this.globalChannelOut = globalChannelOut;
     return this;
@@ -120,12 +121,14 @@ public class Variant1 extends AbstractOperatorGroup {
       .process(analyser)
       .name("Analyser_" + opName);
 
-    if(executionGroup!=null) {
-      outputDataStream.slotSharingGroup(executionGroup);
-      analyserStream.slotSharingGroup(executionGroup);
-    }
+   if (executionGroup != null) {
+     outputDataStream.slotSharingGroup(executionGroup);
+     analyserStream.slotSharingGroup(executionGroup);
+   }
 
-    analyserStream.getSideOutput(analyser.toKafka).sinkTo(globalChannelOut);
+    if (globalChannelOut != null) {
+      analyserStream.getSideOutput(analyser.toKafka).sinkTo(globalChannelOut);
+    }
   }
 
 

@@ -34,10 +34,10 @@ public class Source {
   public int batchSize;
   public DataStream<Event> sourceStream;
   public String[] downstreamOperators;
+  public String[] arg;
   public int recordsPerSecond = 0;
 
   public double mean;
-  private String executionGroup;
 
   /**
    * Constructs new source
@@ -91,13 +91,23 @@ public class Source {
   }
 
   /**
+   * Sets the generator function for this source explicitly.
+   * @param function The new generator function.
+   * @return Reference to this source.
+   */
+  public Source withGeneratorFunction(FromFile function) {
+    eventGenerator = function.use(arg);
+    return this;
+  }
+
+  /**
    * Constructs a source that reads event types from a file and generates new measurements
    * in accordance. In order for this method to work the file should contain a single
    * integer per line (representing the event type).
    * @param pathToFile Path to the file containing the event types (should be present in
    *                   the machine executing the flink jobmanager)
    */
-  public Source(Path pathToFile) {
+  public Source withDataFrom(Path pathToFile) {
     if (!Files.exists(pathToFile)) {
       throw new IllegalArgumentException("Given path is invalid. File does not exist.");
     }
@@ -105,8 +115,12 @@ public class Source {
       throw new IllegalArgumentException("Given path is invalid. File is not readable.");
     }
     try (Stream<String> in = Files.lines(pathToFile)) {
-      String[] arg = in.toArray(String[]::new);
-      this.eventGenerator = new FromFile(arg);
+      if(pathToFile.toString().endsWith(".csv")){
+        arg = in.skip(1).toArray(String[]::new);
+      } else {
+        arg = in.toArray(String[]::new);
+      }
+      return this;
     } catch (IOException ex) {
       throw new RuntimeException(ex);
     }
@@ -198,7 +212,6 @@ public class Source {
       sourceStream =
         env.fromSource(createMeasurementSource(),
             WatermarkStrategy.noWatermarks(), name)
-//          .slotSharingGroup(executionGroup)
           .name(name);
     }
     if (mean > 0) {
@@ -206,23 +219,5 @@ public class Source {
 //        .slotSharingGroup(executionGroup);
     }
   }
-
-  public Source withExecutionGroup(String group) {
-    executionGroup = group;
-    return this;
-  }
 }
 
-class FromFile implements GeneratorFunction<Long, Event> {
-  String[] arr;
-  int index = 0;
-
-  public FromFile(String[] arr) {
-    this.arr = arr;
-  }
-
-  @Override
-  public Event map(Long aLong) throws Exception {
-    return new Event(arr[index++],aLong.toString());
-  }
-}

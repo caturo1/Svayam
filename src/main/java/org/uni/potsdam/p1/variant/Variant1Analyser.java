@@ -2,14 +2,19 @@ package org.uni.potsdam.p1.variant;
 
 import org.apache.flink.streaming.api.functions.co.CoProcessFunction;
 import org.apache.flink.util.Collector;
+import org.uni.potsdam.p1.types.EventPattern;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
 import org.uni.potsdam.p1.types.outputTags.StringOutput;
 
-public class Variant1Analyser extends CoProcessFunction<Metrics, String,Metrics> {
+import java.util.Map;
+
+public class Variant1Analyser
+  extends CoProcessFunction<Metrics, String, Metrics> {
   // define latest metrics received
   Metrics ptime;
   Metrics lambdaIn;
+  Metrics lambdaOut;
 
   // define operator's information
   OperatorInfo operator;
@@ -23,6 +28,7 @@ public class Variant1Analyser extends CoProcessFunction<Metrics, String,Metrics>
   double lastLambda;
   double lastPtime;
   double lastAverage;
+  public boolean useLocalSheddingRates = false;
 
   public StringOutput toKafka;
 
@@ -55,29 +61,33 @@ public class Variant1Analyser extends CoProcessFunction<Metrics, String,Metrics>
 //  long timeout;
 
   @Override
-  public void processElement1(Metrics value, CoProcessFunction<Metrics, String, Metrics>.Context ctx, Collector<Metrics> out) throws Exception {
+  public void processElement1(Metrics value, CoProcessFunction<Metrics, String, Metrics>.Context ctx, Collector<Metrics> out) {
     switch (value.description) {
       case "shares": {
         sheddingRates = value;
         isCoordinatorInformed = false;
-        isShedding = true;
-
-        //TODO test different timeouts
-//        timeout = System.currentTimeMillis()+(long)(lastLambda*lastPtime*1000);
-//        timeout = System.currentTimeMillis()+TimeUnit.SECONDS.toMillis(5);
+        if (!useLocalSheddingRates) {
+          isShedding = true;
+        }
         return;
       }
       case "lambdaOut": {
+        if (lambdaOut != null && value.name.equals(operator.name)) {
+          this.lambdaOut = value;
+          break;
+        }
+      }
+      case "lambdaIn": {
         double diff = 0;
-        for(String eventType :  value.map.keySet()) {
-          if(!eventType.equals("total") && lambdaIn.map.containsKey(eventType)) {
+        for (String eventType : value.map.keySet()) {
+          if (!eventType.equals("total") && lambdaIn.map.containsKey(eventType)) {
             double oldValue = lambdaIn.get(eventType);
             double newValue = value.get(eventType);
-            diff += (newValue-oldValue);
-            lambdaIn.put(eventType,newValue);
+            diff += (newValue - oldValue);
+            lambdaIn.put(eventType, newValue);
           }
         }
-        lambdaIn.put("total",lambdaIn.get("total")+diff);
+        lambdaIn.put("total", lambdaIn.get("total") + diff);
         break;
       }
       case "ptime": {
@@ -99,7 +109,7 @@ public class Variant1Analyser extends CoProcessFunction<Metrics, String,Metrics>
 
 
     double B =
-      Math.max(0,(1 / ((1 / (calculatedP == 0 ? 1 : calculatedP)) - totalLambda)));
+      Math.max(0, (1 / ((1 / (calculatedP == 0 ? 1 : calculatedP)) - totalLambda)));
     boolean pHasChanged = calculatedP > 1.1 * lastAverage;
     boolean lambdaHasChanged = totalLambda > 1.05 * lastLambda;
     boolean ptimeHasChanged = totalPtime > 1.05 * lastPtime;
@@ -108,49 +118,65 @@ public class Variant1Analyser extends CoProcessFunction<Metrics, String,Metrics>
     double lowerBound = upperBound * 0.9;
     double bound = operator.latencyBound;
 
-    if (!isCoordinatorInformed && (calculatedP > lowerBound || ((pHasChanged || lambdaHasChanged || ptimeHasChanged) && B > bound))) {
+    if (!isCoordinatorInformed && (calculatedP >= lowerBound || ((pHasChanged || lambdaHasChanged || ptimeHasChanged) && B > bound))) {
+      if (!isShedding && useLocalSheddingRates) {
+        ctx.output(toKafka, calculateSheddingRate());
+        isShedding = true;
+      }
       informCoordinator(value.name, out);
       isCoordinatorInformed = true;
-    } else if(isShedding && ((0 < B && B < bound) || totalPtime < lowerBound)) {
+    } else if (isShedding && (/*(0 < B && B < bound) ||*/ totalPtime < lowerBound)) {
       isShedding = false;
-      ctx.output(toKafka,operator.name);
+      ctx.output(toKafka, operator.name);
     }
-    // TODO test different activation logic - use ptime for activating shedding and p for demanding a new shedding config
-//    if (!isCoordinatorInformed &&
-//      (calculatedP > lowerBound || isOverloaded || isUnderloaded)
-//      && System.currentTimeMillis() > timeout) {
-//      informCoordinator(value.name, out);
-//      isCoordinatorInformed = true;
-//    } else if(isShedding && (totalPtime < lowerBound)) {
-//      isShedding = false;
-//      ctx.output(toKafka,operator.name);
-//      timeout = System.currentTimeMillis()+(long)(lastLambda*lastPtime*1000);
-//      timeout = System.currentTimeMillis()+TimeUnit.SECONDS.toMillis(5);
-//    }
-//    if(System.currentTimeMillis() > timeout) {
-//      if (!isCoordinatorInformed &&
-//        (calculatedP > lowerBound || isOverloaded || isUnderloaded) ) {
-////      && System.currentTimeMillis() > timeout) {
-//        informCoordinator(value.name, out);
-//        isCoordinatorInformed = true;
-//      } else if(isShedding && (totalPtime < lowerBound)) {
-//        isShedding = false;
-//        ctx.output(toKafka,operator.name);
-//      timeout = System.currentTimeMillis()+(long)(lastLambda*lastPtime*1000);
-//        timeout = System.currentTimeMillis()+TimeUnit.SECONDS.toMillis(5);
-//      }
-//    }
     lastAverage = calculatedP;
     lastPtime = totalPtime;
     lastLambda = totalLambda;
   }
 
   @Override
-  public void processElement2(String value, CoProcessFunction<Metrics, String, Metrics>.Context ctx, Collector<Metrics> out) throws Exception {
+  public void processElement2(String value, CoProcessFunction<Metrics, String, Metrics>.Context ctx, Collector<Metrics> out) {
     if (value.equals("snap")) {
       out.collect(lambdaIn);
     } else {
       throw new IllegalStateException("False message received. Should be snap.");
     }
+  }
+
+  public String calculateSheddingRate() {
+    Metrics mus = lambdaIn;
+    Metrics lambdaOuts = lambdaOut;
+    StringBuilder output = new StringBuilder();
+    output.append(operator.name).append(":");
+    for (EventPattern eventPattern : operator.patterns) {
+      Map<String, Integer> weights = eventPattern.getWeightMaps();
+      double sum = 0.;
+      for (String types : weights.keySet()) {
+        sum += mus.get(types);
+      }
+      String patternKey = eventPattern.name;
+      double total = lambdaOuts.get("total");
+      for (String inputType : weights.keySet()) {
+        double value;
+        if (sum == 0 || total == 0) {
+          value = 0;
+        } else {
+          value = Math.min(1,
+            (mus.get(inputType) / (weights.get(inputType) * sum)) * (lambdaOuts.get(patternKey) / total));//*(ptime.get(patternKey) / ptime.get("total")));
+        }
+        output.append(String.format("%s_%s|%f:", eventPattern.name, inputType, value));
+        sheddingRates.put(eventPattern.name + "_" + inputType, value);
+      }
+    }
+    return output.append("A").toString();
+  }
+
+  public void withLambdaOut() {
+    lambdaOut = new Metrics(operator.name, "lambdaOut", operator.outputTypes.length + 1);
+    for (String type : operator.outputTypes) {
+      lambdaOut.put(type, 0.);
+    }
+    lambdaOut.put("total", 0.);
+    this.useLocalSheddingRates = true;
   }
 }
