@@ -68,25 +68,13 @@ public class Source {
   }
 
   /**
-   * Define source's output types in a given range.
-   *
-   * @param lowerBound Smallest type to be produced.
-   * @param upperBound Exclusive upper bound for event types.
-   * @return Reference to this source.
-   */
-  public Source withOutputTypes(int lowerBound, int upperBound) {
-    this.eventGenerator = index -> new Event(lowerBound, upperBound);
-    return this;
-  }
-
-  /**
    * Define source's output types for a given selection (array/varargs).
    *
    * @param events Different event types to be produced.
    * @return Reference to this source.
    */
   public Source withOutputTypes(String... events) {
-    this.eventGenerator = index -> new Event(events);
+    this.eventGenerator = index -> new Event(events,index);
     return this;
   }
 
@@ -164,27 +152,13 @@ public class Source {
   /**
    * Constructs a source directly using the given parameters.
    *
-   * @param name       Name of this source.
-   * @param batchSize  Amount of events to be produced.
-   * @param lowerBound Smallest type to be produced.
-   * @param upperBound Exclusive upper bound for event types.
-   */
-  public Source(String name, int batchSize, int lowerBound, int upperBound) {
-    this.name = name;
-    this.eventGenerator = index -> new Event(lowerBound, upperBound);
-    this.batchSize = batchSize;
-  }
-
-  /**
-   * Constructs a source directly using the given parameters.
-   *
    * @param name      Name of this source.
    * @param batchSize Amount of events to be produced.
    * @param events    Different event types to be produced.
    */
   public Source(String name, int batchSize, String... events) {
     this.name = name;
-    this.eventGenerator = index -> new Event(events);
+    this.eventGenerator = index -> new Event(events,index);
     this.batchSize = batchSize;
   }
 
@@ -216,7 +190,6 @@ public class Source {
     }
     if (mean > 0) {
       sourceStream = sourceStream.flatMap(new PoissonDataSource(mean));
-//        .slotSharingGroup(executionGroup);
     }
   }
 }

@@ -4,6 +4,7 @@ import org.apache.flink.api.common.JobExecutionResult;
 import org.uni.potsdam.p1.actors.sources.Source;
 import org.uni.potsdam.p1.types.EventPattern;
 import org.uni.potsdam.p1.types.OperatorInfo;
+import org.uni.potsdam.p1.types.Scope;
 
 
 /**
@@ -38,68 +39,75 @@ import org.uni.potsdam.p1.types.OperatorInfo;
 public abstract class Settings {
 
   // GENERAL JOB INFORMATION
+
   public static final int RECORDS_PER_SECOND = 100;
   public static final int CONTROL_BATCH_SIZE = 100;
   public static final int BATCH_SIZE = 10_000;
   public static final double LATENCY_BOUND = 0.00055;
   public static final int TIME_WINDOW = 10;
-  public static final boolean GLOBAL_SCOPE = true;
-  public static final boolean LOG_SOURCES = true;
+  public static final Scope SCOPE = Scope.VARIANT;
+  public static final long FACTOR = (long)(1/700.*1E9);
+
 
   // define sources
   public static final Source[] SOURCES = new Source[]{
-    new Source().withName("s1")
+    new Source()
+      .withName("s1")
+      .withOutputTypes("0 1 2 3".split(" "))
       .withBatchSize(BATCH_SIZE)
-      .withOutputTypes(0, 4)
       .withRecordsPerSecond(RECORDS_PER_SECOND)
       .withDownStreamOperators("o1")
     ,
-    new Source().withName("s2")
+    new Source()
+      .withName("s2")
+      .withOutputTypes("0 1 2 3".split(" "))
       .withBatchSize(BATCH_SIZE)
-      .withOutputTypes(0, 4)
       .withRecordsPerSecond(RECORDS_PER_SECOND)
       .withDownStreamOperators("o2")
   };
 
   // define operators
   public OperatorInfo[] OPERATORS = new OperatorInfo[]{
+     new OperatorInfo()
+       .withName("o1")
+       .withInputTypes("0 1 2 3".split(" "))
+       .withControlBatchSize(CONTROL_BATCH_SIZE)
+       .withLatencyBound(LATENCY_BOUND)
+       .withPatterns(
+         EventPattern.SEQ("11", "0|2:1|1", TIME_WINDOW, "o3"),
+         EventPattern.AND("12", "1:2:3", TIME_WINDOW, "o4"))
+      .withExecutionGroup("o1")
+     ,
 
-    new OperatorInfo().withName("o1")
-      .withInputTypes(0, 4)
-      .withControlBatchSize(CONTROL_BATCH_SIZE)
-      .withLatencyBound(LATENCY_BOUND)
-      .withPatterns(
-      EventPattern.SEQ("11", "0|2:1|1", TIME_WINDOW, "o3"),
-      EventPattern.AND("12", "1:2:3", TIME_WINDOW, "o4"))
-    ,
+     new OperatorInfo()
+       .withName("o2")
+       .withInputTypes("0 1 2 3".split(" "))
+       .withControlBatchSize(CONTROL_BATCH_SIZE)
+       .withLatencyBound(LATENCY_BOUND)
+       .withPatterns(
+         EventPattern.SEQ("21", "0|2:1|1", TIME_WINDOW, "o3"),
+         EventPattern.AND("22", "1:2:3", TIME_WINDOW, "o4"))
+      .withExecutionGroup("o2")
+     ,
 
-    new OperatorInfo().withName("o2")
-      .withInputTypes(0, 4)
-      .withControlBatchSize(CONTROL_BATCH_SIZE)
-      .withLatencyBound(LATENCY_BOUND)
-      .withPatterns(
-      EventPattern.SEQ("21", "0|2:1|1", TIME_WINDOW, "o3"),
-      EventPattern.AND("22", "1:2:3", TIME_WINDOW, "o4"))
-    ,
+     new OperatorInfo().withName("o3")
+       .withInputTypes("11 21".split(" "))
+       .withControlBatchSize(CONTROL_BATCH_SIZE)
+       .withLatencyBound(LATENCY_BOUND)
+       .withPatterns(
+         EventPattern.AND("1000", "11:21", TIME_WINDOW))
+       .toSink()
+     ,
 
-    new OperatorInfo().withName("o3")
-      .withInputTypes("11", "21")
-      .withControlBatchSize(CONTROL_BATCH_SIZE)
-      .withLatencyBound(LATENCY_BOUND)
-      .withPatterns(
-        EventPattern.AND("1000", "11:21", TIME_WINDOW))
-      .toSink()
-    ,
+     new OperatorInfo().withName("o4")
+       .withInputTypes("12 22".split(" "))
+       .withControlBatchSize(CONTROL_BATCH_SIZE)
+       .withLatencyBound(LATENCY_BOUND)
+       .withPatterns(
+         EventPattern.AND("2000", "12:22", TIME_WINDOW))
+       .toSink()
 
-    new OperatorInfo().withName("o4")
-      .withInputTypes("12", "22")
-      .withControlBatchSize(CONTROL_BATCH_SIZE)
-      .withLatencyBound(LATENCY_BOUND)
-      .withPatterns(
-        EventPattern.AND("2000", "12:22", TIME_WINDOW))
-      .toSink()
   };
-
 
   /**
    * Execute the complex event detection job and return the system's results once finished.

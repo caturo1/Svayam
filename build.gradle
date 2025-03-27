@@ -77,7 +77,6 @@ ${flinkVersion}"""
   // Dependencies that should be part of the shadow jar, e.g.
   // connectors. These must be in the flinkShadowJar configuration!
   // --------------------------------------------------------------
-  //flinkShadowJar "org.apache.flink:flink-connector-kafka:${flinkVersion}"
 
   flinkShadowJar "org.apache.kafka:kafka-clients:3.8.0"
   flinkShadowJar "org.slf4j:slf4j-api:1.7.32"

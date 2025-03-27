@@ -53,23 +53,8 @@ public class Event implements Serializable {
    *
    * @param types different possible event types
    */
-  public Event(String[] types) {
-    this(types[(int) (Math.random() * types.length)]);
-  }
-
-
-  /**
-   * Constructs a new event of a given type in a given range
-   *
-   * @param lowerBound lowest event type possible
-   * @param upperBound highest event type possible
-   */
-  public Event(int lowerBound, int upperBound) {
-    if (upperBound < lowerBound) {
-      throw new IllegalArgumentException("UpperBound must not be greater than the lower bound");
-    }
-    this.type = ""+lowerBound + (int) (Math.random() * (upperBound - lowerBound));
-    eventTime = System.currentTimeMillis();
+  public Event(String[] types,Long value) {
+    this(types[(int) (Math.random() * types.length)],value.toString());
   }
 
   public Event(String type, String id) {
