@@ -99,6 +99,15 @@ public class OperatorInfo implements Serializable {
     metrics[indexer.get(key)] = value;
   }
 
+  public EventPattern getPattern(String patternName) {
+    for (EventPattern pattern : patterns) {
+      if (pattern.name.equals(patternName)) {
+        return pattern;
+      }
+    }
+    throw new IllegalArgumentException("Pattern not contained in the operator.");
+  }
+  
   public boolean hasPattern(String pattern) {
     for (EventPattern opPattern : patterns) {
       if (opPattern.name.equals(pattern)) {

@@ -79,16 +79,6 @@ public class Source {
   }
 
   /**
-   * Sets the generator function for this source explicitly.
-   * @param function The new generator function.
-   * @return Reference to this source.
-   */
-  public Source withGeneratorFunction(FromFile function) {
-    eventGenerator = function.use(arg);
-    return this;
-  }
-
-  /**
    * Constructs a source that reads event types from a file and generates new measurements
    * in accordance. In order for this method to work the file should contain a single
    * integer per line (representing the event type).

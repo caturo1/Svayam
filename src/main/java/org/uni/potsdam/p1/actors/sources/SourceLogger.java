@@ -16,6 +16,6 @@ public class SourceLogger extends ProcessFunction<Event, Object> {
 
   @Override
   public void processElement(Event value, ProcessFunction<Event, Object>.Context ctx, Collector<Object> out) throws Exception {
-    sourceLog.info(value.toJson(name));
+    sourceLog.info(value.toString(name));
   }
 }
