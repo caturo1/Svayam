@@ -14,6 +14,7 @@ import org.uni.potsdam.p1.actors.operators.groups.*;
 import org.uni.potsdam.p1.actors.operators.tools.Coordinator;
 import org.uni.potsdam.p1.actors.operators.tools.Messenger;
 import org.uni.potsdam.p1.actors.sources.Source;
+import org.uni.potsdam.p1.heuristic.HybridOperatorGroup;
 import org.uni.potsdam.p1.hybrid.Hybrid2;
 import org.uni.potsdam.p1.types.EventPattern;
 import org.uni.potsdam.p1.types.Metrics;
@@ -23,7 +24,9 @@ import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
 import org.uni.potsdam.p1.types.outputTags.StringOutput;
 import org.uni.potsdam.p1.variant.Variant1;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -50,17 +53,18 @@ public class OperatorGraph extends Settings {
   Map<String, Source> sources;
   Map<String, AbstractOperatorGroup> operators;
   Coordinator coordinator;
-  MetricsOutput toCoordinator;
+  MetricsOutput toCoordinator;  
   DataStream<Metrics> streamToCoordinator;
-
+  
   /*
-    Set Kafka channels:
-      -> globalChannelIn:   reads from kafka topic (global) containing the sos messages and
-                            directs them to the OPERATORS
-      -> globalChannelOut:  writes sos messages to kafka topic (global)
-      -> control:           used for debugging and to gather metrics/outputs
-   */
+  Set Kafka channels:
+  -> globalChannelIn:   reads from kafka topic (global) containing the sos messages and
+  directs them to the OPERATORS
+  -> globalChannelOut:  writes sos messages to kafka topic (global)
+  -> control:           used for debugging and to gather metrics/outputs
+  */
   public String KAFKA_ADDRESS;
+  public KafkaSink<String> producerChannel;
   public KafkaSource<String> globalChannelIn;
   public KafkaSink<String> globalChannelOut;
   public StringOutput toKafka;
@@ -80,7 +84,8 @@ public class OperatorGraph extends Settings {
     for (Source source : sources) {
       this.sources.put(source.name, source);
     }
-    if (SCOPE == Scope.GLOBAL || SCOPE == Scope.VARIANT || SCOPE == Scope.HYBRID) {
+    if (SCOPE == Scope.GLOBAL || SCOPE == Scope.VARIANT) {
+
       KAFKA_ADDRESS = "kafka:9092";
       toKafka = new StringOutput("out_to_kafka");
       globalChannelIn =
@@ -105,6 +110,41 @@ public class OperatorGraph extends Settings {
 
     }
 
+    if (SCOPE == Scope.HYBRID) {
+      KAFKA_ADDRESS = "kafka:9092";
+      toKafka = new StringOutput("out_to_kafka");
+
+      List<String> requiredTopics = new ArrayList<>();
+      for (OperatorInfo operator : operators) {
+        requiredTopics.add(operator.name);
+      }
+
+      KafkaTopicManager.ensureTopicExists(requiredTopics, KAFKA_ADDRESS);
+      producerChannel = KafkaSink.<String>builder()
+              .setBootstrapServers(KAFKA_ADDRESS)
+              .setRecordSerializer(KafkaRecordSerializationSchema.builder()
+                      .setTopicSelector(element -> {
+                        //have to re-implement the regEx but another time
+                        String msg = (String) element;
+                        String hit1 = "target";
+                        String hit2 = "description";
+                        int splitIndexStart = msg.indexOf(hit1) + hit1.length() + 1;
+                        int splitIndexEnd = msg.indexOf(hit2);
+                        if (msg.length() < 4 || splitIndexStart - splitIndexEnd < 2) {
+                          return null;
+                        }
+                        else {
+                          String topic = msg.substring(splitIndexStart, splitIndexEnd);
+                          return topic;
+                        }
+                      })
+                      .setValueSerializationSchema(new SimpleStringSchema())
+                      .build()
+              )
+              .build();
+    }
+
+
     this.operators = new HashMap<>(operators.length);
     for (OperatorInfo operator : operators) {
       AbstractOperatorGroup newGroup;
@@ -120,9 +160,8 @@ public class OperatorGraph extends Settings {
           .connectToCoordinator(toCoordinator)
           .connectToKafka(toKafka, globalChannelOut);
       } else if (SCOPE == Scope.HYBRID) {
-        newGroup = new Hybrid2(operator)
-          .connectToCoordinator(toCoordinator)
-          .connectToKafka(toKafka, globalChannelOut);
+        newGroup = new HybridOperatorGroup(operator)
+                .connectToKafka(toKafka, producerChannel);
       } else {
         newGroup = new BasicOperatorGroup(operator);
       }
@@ -145,13 +184,33 @@ public class OperatorGraph extends Settings {
 
     // start execution environment
     final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-    if (SCOPE == Scope.GLOBAL || SCOPE == Scope.VARIANT || SCOPE == Scope.HYBRID) {
+    if (SCOPE == Scope.GLOBAL || SCOPE == Scope.VARIANT) {
       // define a keyed data stream with which the operators send their information to the coordinator
       global = env.fromSource(globalChannelIn, WatermarkStrategy.noWatermarks(), "global")
         .process(new Messenger(operators, SCOPE))
 //        .slotSharingGroup("Messenger")
         .name("Messenger");
     }
+
+    else if (SCOPE == Scope.HYBRID) {
+      // Create Kafka consumers for each operator once
+      for (OperatorInfo operator : OPERATORS) {
+        String opName = operator.name;
+        KafkaSource<String> opConsumer = KafkaSource.<String>builder()
+                .setBootstrapServers(KAFKA_ADDRESS)
+                .setTopics(opName)
+                .setStartingOffsets(OffsetsInitializer.latest())
+                .setValueOnlyDeserializer(new SimpleStringSchema())
+                .build();
+
+        DataStream<String> kafkaInput = env.fromSource(opConsumer, 
+                                                    WatermarkStrategy.noWatermarks(), 
+                                                    "opConsumer_" + opName);
+        HybridOperatorGroup hybridGroup = (HybridOperatorGroup) operators.get(opName);
+        hybridGroup.createDataStream(kafkaInput);
+      }
+    }
+
 
     for (Source source : sources.values()) {
       source.createDataStream(env);
@@ -170,10 +229,7 @@ public class OperatorGraph extends Settings {
       } else if (SCOPE == Scope.VARIANT) {
         ((Variant1) current).createDataStream(global);
         streamToCoordinator = ((Variant1) current).gatherMetrics(streamToCoordinator);
-      } else if (SCOPE == Scope.HYBRID) {
-        ((Hybrid2) current).createDataStream(global);
-        streamToCoordinator = ((Variant1) current).gatherMetrics(streamToCoordinator);
-      } else {
+      }  else if (SCOPE != Scope.HYBRID) {
         ((BasicOperatorGroup) current).createDataStream();
       }
       for (EventPattern pattern : current.operatorInfo.patterns) {
@@ -184,14 +240,25 @@ public class OperatorGraph extends Settings {
             downstreamOp.addAnalyserInputStream(current.outputDataStream);
           }
           if (SCOPE == Scope.HYBRID) {
-            Hybrid2 downstreamOp = (Hybrid2) operators.get(opDownStream);
-            downstreamOp.addAnalyserInputStream(current.outputDataStream);
+            if (operators.get(opDownStream) instanceof HybridOperatorGroup &&
+                current instanceof HybridOperatorGroup) {
+              HybridOperatorGroup downstreamOp = (HybridOperatorGroup) operators.get(opDownStream);
+              HybridOperatorGroup currentHybrid = (HybridOperatorGroup) current;
+              
+              // Now use the cast variables
+              downstreamOp.addAnalyzerInputStream(currentHybrid.outputDataStream);
+              downstreamOp.addAnalyserSOSStream(currentHybrid.analyserOutputStream);
+            } else {
+              System.out.println("Warning: Expected HybridOperatorGroup but got " + 
+                                  operators.get(opDownStream).getClass().getName() + 
+                                  " or " + current.getClass().getName());
+            }
           }
         }
       }
     }
 
-    if (SCOPE == Scope.GLOBAL || SCOPE == Scope.VARIANT || SCOPE == Scope.HYBRID) {
+    if (SCOPE == Scope.GLOBAL || SCOPE == Scope.VARIANT) {
 
       // execute coordinator
       SingleOutputStreamOperator<String> coordinatorOutput = streamToCoordinator
