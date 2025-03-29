@@ -6,8 +6,8 @@ import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.uni.potsdam.p1.actors.operators.groups.AbstractOperatorGroup;
-import org.uni.potsdam.p1.types.EventPattern;
 import org.uni.potsdam.p1.types.Event;
+import org.uni.potsdam.p1.types.EventPattern;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
 import org.uni.potsdam.p1.types.outputTags.EventOutput;
@@ -28,9 +28,10 @@ public class HybridOperatorGroup extends AbstractOperatorGroup {
     // thisOperator -> downStreamAnalyzer
 
     public final MetricsOutput toThisAnalyser;
+    public final StringOutput analyserInput;
     public final MetricsOutput downstreamAnalyser;
     public final EventOutput downstream;
-    public StringOutput produceToKafka;
+    public StringOutput toKafka;
     public StringOutput kafkaToAnalyser;
     public StringOutput kafkaToOperator;
     
@@ -47,24 +48,25 @@ public class HybridOperatorGroup extends AbstractOperatorGroup {
     public SingleOutputStreamOperator<String> analyserOutputStream; 
     // global KafkaProducer Stream
     public KafkaSink<String> globalChannelOut;
+    public DataStream<String> analyserStringStream; 
 
     public HybridOperatorGroup(OperatorInfo operatorInfo) {
         super(operatorInfo);
 
         operator = new HybridOperator(operatorInfo);
-        analyser = new HybridAnalyser(operatorInfo);
         
-        
-        kafkaToAnalyser = new StringOutput("to_analyser" + operatorInfo.name);
-        kafkaToOperator = new StringOutput("to_shedder" + operatorInfo.name);
-        toThisAnalyser = new MetricsOutput("to_analyser_" + operatorInfo.name);
+        analyserInput = new StringOutput("to_analyser_" + operatorInfo.name);
+        kafkaToAnalyser = new StringOutput("kafka_to_analyser_" + operatorInfo.name);
+        kafkaToOperator = new StringOutput("kafka_to_operator_" + operatorInfo.name);
+        toThisAnalyser = new MetricsOutput("op_to_analyser_" + operatorInfo.name);
         downstream = new EventOutput("downstream" + operatorInfo.name);  
         downstreamAnalyser = new MetricsOutput("downstream" + operatorInfo.name);  
         
         messenger = new HybridMessenger(operatorInfo, kafkaToAnalyser, kafkaToOperator);
+        analyser = new HybridAnalyser(operatorInfo);
         
         // we only need outputRate and processingTimes for shedding calculations
-        operator.setMetricsOutput("labmdaOut", toThisAnalyser);
+        operator.setMetricsOutput("lambdaOut", toThisAnalyser);
         operator.setMetricsOutput("ptime", toThisAnalyser);
         operator.setMetricsOutput("lambdaOut", downstreamAnalyser);
     }
@@ -81,63 +83,51 @@ public class HybridOperatorGroup extends AbstractOperatorGroup {
      */
     public void createDataStream(DataStream<String> opKafkaStream) {
         String opName = operatorInfo.name;
-    
+
         if (opKafkaStream == null) {
-            System.out.println("Warning: Kafka stream for operator " + opName + " is null");
-            return;
+            throw new IllegalArgumentException("Kafka stream cannot be null for operator " + opName);
         }
-    
-        messengerStream = opKafkaStream
+
+        SingleOutputStreamOperator<String> messengerStream = opKafkaStream
             .process(messenger)
-            .name("messenger" + opName);
+            .name("messenger_" + opName);
+
+        DataStream<String> operatorKafkaStream = messengerStream
+            .getSideOutput(kafkaToOperator);
         
+        DataStream<String> analyzerKafkaStream = messengerStream
+            .getSideOutput(kafkaToAnalyser);
+
         if (inputDataStreams == null) {
-            System.out.println("Warning: Input stream for operator " + opName + " is null");
-            return;
+            throw new IllegalArgumentException("Input streams cannot be null for operator " + opName);
         }
-        
-        // Main processing stream to shedder
-        SingleOutputStreamOperator<Event> outputDataStream = inputDataStreams
-            .connect(messengerStream.getSideOutput(kafkaToOperator))
+
+        outputDataStream = inputDataStreams
+            .connect(operatorKafkaStream)
             .process(operator)
-            .name("to_operator"+ opName);
-        
-        this.outputDataStream = outputDataStream;
-        
-        // Initialize streams if they're null
-        DataStream<Metrics> metricsStream = outputDataStream.getSideOutput(toThisAnalyser);
-        if (analyzerInputStream == null) {
-            analyzerInputStream = metricsStream;
-        } else {
-            analyzerInputStream = analyzerInputStream.union(metricsStream);
-        }
-        
-        DataStream<String> kafkaMessages = messengerStream.getSideOutput(kafkaToAnalyser);
-        
-        // Only create the analyzer output stream if we have both required inputs
-        if (analyzerInputStream != null && (analyserOutputStream != null || kafkaMessages != null)) {
-            DataStream<String> connectStream = analyserOutputStream != null ? 
-                (kafkaMessages != null ? analyserOutputStream.union(kafkaMessages) : analyserOutputStream) :
-                kafkaMessages;
-                
-            SingleOutputStreamOperator<String> analyzerOutpuStream = analyzerInputStream
-                .connect(connectStream)
-                .process(analyser)
-                .name("analyser" + opName);
-    
-            this.analyserOutputStream = analyzerOutpuStream;
+            .name("operator_"+opName);
             
-            if (produceToKafka != null && globalChannelOut != null) {
-                analyzerOutpuStream.getSideOutput(produceToKafka).sinkTo(globalChannelOut);
-            }
+        DataStream<Metrics> operatorMetrics = outputDataStream.getSideOutput(toThisAnalyser);
+
+        // Prepare the metrics stream for the analyzer
+        DataStream<Metrics> metricsForAnalyzer;
+        if (analyzerInputStream != null) {
+            metricsForAnalyzer = analyzerInputStream.union(operatorMetrics);
+        } else {
+            metricsForAnalyzer = operatorMetrics;
         }
         
-        if (operatorInfo.executionGroup != null) {
-            outputDataStream.slotSharingGroup(operatorInfo.executionGroup);
-            if (analyserOutputStream != null) {
-                analyserOutputStream.slotSharingGroup(operatorInfo.executionGroup);
-            }
-            messengerStream.slotSharingGroup(operatorInfo.executionGroup);
+        if (analyserStringStream != null) {
+            analyzerKafkaStream = analyzerKafkaStream.union(analyserStringStream);
+        }
+
+        analyserOutputStream = metricsForAnalyzer
+            .connect(analyzerKafkaStream)
+            .process(analyser)
+            .name("analyser_" + opName);
+
+        if (toKafka != null && globalChannelOut != null) {
+            analyserOutputStream.getSideOutput(toKafka).sinkTo(globalChannelOut);
         }
     }
 
@@ -167,7 +157,7 @@ public class HybridOperatorGroup extends AbstractOperatorGroup {
 
         DataStream<Metrics> sourceOutputRates = inputStream
             .process(new VariantSourceCounter(operatorInfo))
-            .name("Source Counter");
+            .name("Source_Counter_" + operatorInfo.name);
 
         if (analyzerInputStream == null) {
             analyzerInputStream = sourceOutputRates;
@@ -190,7 +180,7 @@ public class HybridOperatorGroup extends AbstractOperatorGroup {
         if (analyzerInputStream == null) {
             analyzerInputStream = stream;
         } else {
-            analyzerInputStream.union(stream);
+            analyzerInputStream = analyzerInputStream.union(stream);
         }
     }
 
@@ -200,18 +190,19 @@ public class HybridOperatorGroup extends AbstractOperatorGroup {
             return;
         }
 
-        if (analyserOutputStream == null) {
-            analyserOutputStream = sosStream;
-        }
-        
-        else {
-            analyserOutputStream.union(sosStream);
+        DataStream<String> incomingStream = sosStream.getSideOutput(analyserInput);
+
+        if (analyserStringStream == null) {
+            analyserStringStream = sosStream;
+        } else {
+            analyserStringStream = analyserStringStream.union(incomingStream);
         }
     }
 
     //set up the outgoing kafka connection the analyzer uses
     public HybridOperatorGroup connectToKafka(StringOutput produceToKafka,KafkaSink<String> globalChannelOut) {
-        this.produceToKafka = produceToKafka;
+        this.analyser.toKafka = produceToKafka;
+        this.toKafka = produceToKafka;
         this.globalChannelOut = globalChannelOut;
         return this;
     }

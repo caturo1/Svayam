@@ -10,10 +10,13 @@ import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsIni
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.uni.potsdam.p1.actors.operators.groups.*;
 import org.uni.potsdam.p1.actors.operators.tools.Coordinator;
 import org.uni.potsdam.p1.actors.operators.tools.Messenger;
 import org.uni.potsdam.p1.actors.sources.Source;
+import org.uni.potsdam.p1.heuristic.HybridMessenger;
 import org.uni.potsdam.p1.heuristic.HybridOperatorGroup;
 import org.uni.potsdam.p1.hybrid.Hybrid2;
 import org.uni.potsdam.p1.types.EventPattern;
@@ -28,6 +31,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * <p>
@@ -49,7 +54,8 @@ import java.util.Map;
  * contains kafka and flink and deploy this application there.
  * </p>
  */
-public class OperatorGraph extends Settings {
+public class OperatorGraph extends SettingsExtended {
+  private static final Logger oLog = LoggerFactory.getLogger(OperatorGraph.class);
   Map<String, Source> sources;
   Map<String, AbstractOperatorGroup> operators;
   Coordinator coordinator;
@@ -121,27 +127,39 @@ public class OperatorGraph extends Settings {
 
       KafkaTopicManager.ensureTopicExists(requiredTopics, KAFKA_ADDRESS);
       producerChannel = KafkaSink.<String>builder()
-              .setBootstrapServers(KAFKA_ADDRESS)
-              .setRecordSerializer(KafkaRecordSerializationSchema.builder()
-                      .setTopicSelector(element -> {
-                        //have to re-implement the regEx but another time
-                        String msg = (String) element;
-                        String hit1 = "target";
-                        String hit2 = "description";
-                        int splitIndexStart = msg.indexOf(hit1) + hit1.length() + 1;
-                        int splitIndexEnd = msg.indexOf(hit2);
-                        if (msg.length() < 4 || splitIndexStart - splitIndexEnd < 2) {
-                          return null;
-                        }
-                        else {
-                          String topic = msg.substring(splitIndexStart, splitIndexEnd);
+        .setBootstrapServers(KAFKA_ADDRESS)
+        .setRecordSerializer(KafkaRecordSerializationSchema.builder()
+                // Replace your current topic selector with this for better debugging
+                .setTopicSelector(element -> {
+                  String msg = (String) element;
+                  oLog.info("Topic selection for message of length: " + msg.length());
+                  
+                  try {
+                      // Always log the first part of the message for debugging
+                      String firstPart = msg.length() > 50 ? msg.substring(0, 50) + "..." : msg;
+                      oLog.info("Message content: " + msg);
+                    
+                      String targetPattern = "target:([^\\s]+)";
+                      Pattern pattern = Pattern.compile(targetPattern);
+                      Matcher matcher = pattern.matcher(msg);
+                      
+                      if (matcher.find()) {
+                          String topic = matcher.group(1);
+                          oLog.info("Extracted topic: '" + topic + "'");
                           return topic;
-                        }
-                      })
-                      .setValueSerializationSchema(new SimpleStringSchema())
-                      .build()
-              )
-              .build();
+                      } else {
+                        return "default";
+                      }
+
+                  } catch (Exception e) {
+                      oLog.error("No target found in message: " + e.getMessage(), e + " -- using default");
+                      throw new RuntimeException("Topic selector not able to redirect message");
+                  }
+                })
+                .setValueSerializationSchema(new SimpleStringSchema())
+                .build()
+        )
+        .build();
     }
 
 
@@ -184,6 +202,14 @@ public class OperatorGraph extends Settings {
 
     // start execution environment
     final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    
+    for (Source source : sources.values()) {
+      source.createDataStream(env);
+      for (String opDownStream : source.downstreamOperators) {
+        operators.get(opDownStream).addInputStream(source.sourceStream);
+      }
+    }
+    
     if (SCOPE == Scope.GLOBAL || SCOPE == Scope.VARIANT) {
       // define a keyed data stream with which the operators send their information to the coordinator
       global = env.fromSource(globalChannelIn, WatermarkStrategy.noWatermarks(), "global")
@@ -192,7 +218,8 @@ public class OperatorGraph extends Settings {
         .name("Messenger");
     }
 
-    else if (SCOPE == Scope.HYBRID) {
+    Map<String, DataStream<String>> kafkaInputs = new HashMap<>();
+    if (SCOPE == Scope.HYBRID) {
       // Create Kafka consumers for each operator once
       for (OperatorInfo operator : OPERATORS) {
         String opName = operator.name;
@@ -206,18 +233,11 @@ public class OperatorGraph extends Settings {
         DataStream<String> kafkaInput = env.fromSource(opConsumer, 
                                                     WatermarkStrategy.noWatermarks(), 
                                                     "opConsumer_" + opName);
-        HybridOperatorGroup hybridGroup = (HybridOperatorGroup) operators.get(opName);
-        hybridGroup.createDataStream(kafkaInput);
+        kafkaInputs.put(opName, kafkaInput);
       }
     }
 
 
-    for (Source source : sources.values()) {
-      source.createDataStream(env);
-      for (String opDownStream : source.downstreamOperators) {
-        operators.get(opDownStream).addInputStream(source.sourceStream);
-      }
-    }
 
     for (OperatorInfo operator : OPERATORS) {
       AbstractOperatorGroup current = operators.get(operator.name);
@@ -229,7 +249,15 @@ public class OperatorGraph extends Settings {
       } else if (SCOPE == Scope.VARIANT) {
         ((Variant1) current).createDataStream(global);
         streamToCoordinator = ((Variant1) current).gatherMetrics(streamToCoordinator);
-      }  else if (SCOPE != Scope.HYBRID) {
+      } else if (SCOPE == Scope.HYBRID) {
+        DataStream<String> kafkaInput = kafkaInputs.get(operator.name);
+        if (kafkaInput != null) {
+          ((HybridOperatorGroup) current).createDataStream(kafkaInput);
+        } else {
+          oLog.info("Kafka not properly set up");
+          throw new IllegalArgumentException("Fuck me, kafka input broken boy");
+        }
+      } else {
         ((BasicOperatorGroup) current).createDataStream();
       }
       for (EventPattern pattern : current.operatorInfo.patterns) {
@@ -247,9 +275,12 @@ public class OperatorGraph extends Settings {
               
               // Now use the cast variables
               downstreamOp.addAnalyzerInputStream(currentHybrid.outputDataStream);
-              downstreamOp.addAnalyserSOSStream(currentHybrid.analyserOutputStream);
+              if (currentHybrid.analyserOutputStream != null) {
+                downstreamOp.addAnalyserSOSStream(currentHybrid.analyserOutputStream);
+              }
+
             } else {
-              System.out.println("Warning: Expected HybridOperatorGroup but got " + 
+              oLog.info("Warning: Expected HybridOperatorGroup but got " + 
                                   operators.get(opDownStream).getClass().getName() + 
                                   " or " + current.getClass().getName());
             }

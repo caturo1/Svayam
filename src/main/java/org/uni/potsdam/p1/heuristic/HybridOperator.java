@@ -2,7 +2,8 @@ package org.uni.potsdam.p1.heuristic;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.flink.streaming.api.functions.co.CoProcessFunction;
 import org.uni.potsdam.p1.types.Event;
 import org.uni.potsdam.p1.types.Metrics;
@@ -18,6 +19,7 @@ import org.apache.flink.util.Collector;
 
 public class HybridOperator extends CoProcessFunction<Event, String, Event> {
     
+    private static final Logger oLog = LoggerFactory.getLogger(HybridOperator.class);
     public final HybridOperatorCore core;
     public Metrics sheddingRates;
 
@@ -31,7 +33,7 @@ public class HybridOperator extends CoProcessFunction<Event, String, Event> {
         sheddingRates = core.sheddingRates;
         isShedding = core.isShedding;
 
-        headerPattern = Pattern.compile("target:([^\\s]+) description:([^\\s]+) origin:([^\\s]+) pattern:([^\\s]+) timestamp:([0-9]+)");
+        headerPattern = Pattern.compile("target:([^\\s]+) description:([^\\s]+) origin:([^\\s]+) pattern:([^\\s]+) timestamp:([^\\s]+)");
         mapPattern = Pattern.compile("\\|?\\s*([^\\s|=]+)\\s*=\\s*([0-9]*\\.?[0-9]+)");
     }
 
@@ -71,14 +73,20 @@ public class HybridOperator extends CoProcessFunction<Event, String, Event> {
         
         Matcher headerMatcher = headerPattern.matcher(header);
         
-        String desc = "";
+        String msgTarget = "default";
+        String desc = "default";
+        String origin = "default";
+        String pattern = "default";
         // not sure if I shall implement a shedding delay (Sukanya said sth about this but it doesn't make any sense 2me currently)
-        long timestamp = 0;
         
         if (headerMatcher.find()) {
+            msgTarget = headerMatcher.group(1);
             desc = headerMatcher.group(2);
-            timestamp = Long.parseLong(headerMatcher.group(5));
+            origin = headerMatcher.group(3);
+            pattern = headerMatcher.group(4);
         }
+
+        oLog.info("Received kafka message with description: " + desc + ". Set for shedding coordination.");
 
         switch(desc) {
             case "startShedding" : 
@@ -94,6 +102,9 @@ public class HybridOperator extends CoProcessFunction<Event, String, Event> {
             case "sheddingRatesMap" : 
                 integrateRates(mapToken);
                 break;
+            
+            case "aggSelectivity" :
+                throw new IllegalArgumentException("The operator " + core.operator.name + "should not receive aggregate selectivities");
 
             default:
                 throw new IllegalStateException("Error while processing a message from the analyzer in the operator");

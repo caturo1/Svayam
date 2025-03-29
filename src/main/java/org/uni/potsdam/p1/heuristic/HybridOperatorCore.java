@@ -42,12 +42,7 @@ public class HybridOperatorCore extends OperatorCore {
             updateAndForward(processingTimesMeasurer, processingTimes, ctx);
             updateAndForward(processingRateMeasurer, processingRates, ctx);      
             // Log stats
-            opLog.info(String.format(
-                "{\"ptime\":%f,\"time\":%d,\"name\":\"%s\"}", 
-                processingTimesMeasurer.results.get("total"),
-                System.currentTimeMillis(), 
-                operator.name
-            ));
+            // opLog.info(String.format("{\"ptime\":%f,\"time\":%d,\"name\":\"%s\"}", processingTimesMeasurer.results.get("total"),System.currentTimeMillis(), operator.nam));
         }
 
         if (outputRateMeasurer.isReady()) {
