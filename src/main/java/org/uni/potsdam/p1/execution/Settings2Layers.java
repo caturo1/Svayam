@@ -36,7 +36,7 @@ import org.uni.potsdam.p1.types.Scope;
  * that send it events).
  * </p>
  */
-public abstract class Settings2Layer {
+public abstract class Settings2Layers {
 
   // GENERAL JOB INFORMATION
 

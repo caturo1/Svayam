@@ -16,9 +16,7 @@ import org.uni.potsdam.p1.actors.operators.groups.*;
 import org.uni.potsdam.p1.actors.operators.tools.Coordinator;
 import org.uni.potsdam.p1.actors.operators.tools.Messenger;
 import org.uni.potsdam.p1.actors.sources.Source;
-import org.uni.potsdam.p1.heuristic.HybridMessenger;
 import org.uni.potsdam.p1.heuristic.HybridOperatorGroup;
-import org.uni.potsdam.p1.hybrid.Hybrid2;
 import org.uni.potsdam.p1.types.EventPattern;
 import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
@@ -37,14 +35,14 @@ import java.util.regex.Pattern;
 /**
  * <p>
  * This class parses and executes the Flink-Query to be executed with global or local load
- * shedding properties in accordance to attributes defined in {@link Settings2Layer}.
+ * shedding properties in accordance to attributes defined in {@link Settings2Layers}.
  * It creates new sources ({@link Source}) and operator groups ({@link AbstractOperatorGroup})
  * using the information provided in the settings, connects them and prepares an
  * executable Flink-query which can be used in the {@link org.uni.potsdam.p1.DataStreamJob}'s
  * main method to deploy the job to a flink cluster.
  * </p>
  * <p>
- * If the setting GLOBAL_SCOPE is set to true in {@link Settings2Layer}, then this class assumes
+ * If the setting GLOBAL_SCOPE is set to true in {@link Settings2Layers}, then this class assumes
  * that the flink cluster is being executed in a docker network, in which a kafka server
  * is also reachable at kafka:9092. It assumes also that this kafka server contains the
  * topics global and globalOut. Failing to provide this will cause the application to fail.
@@ -54,7 +52,7 @@ import java.util.regex.Pattern;
  * contains kafka and flink and deploy this application there.
  * </p>
  */
-public class OperatorGraph extends Settings3Layer {
+public class OperatorGraph extends Settings3Layers {
   private static final Logger oLog = LoggerFactory.getLogger(OperatorGraph.class);
   Map<String, Source> sources;
   Map<String, AbstractOperatorGroup> operators;

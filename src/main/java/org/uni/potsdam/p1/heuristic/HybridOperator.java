@@ -34,7 +34,7 @@ public class HybridOperator extends CoProcessFunction<Event, String, Event> {
         sheddingRates = core.sheddingRates;
         isShedding = core.isShedding;
 
-        headerPattern = Pattern.compile("target:([^\\s]+) description:([^\\s]+) origin:([^\\s]+) pattern:([^\\s]+) timestamp:([^\\s]+)");
+        headerPattern = Pattern.compile("target:([^\\s]+) description:([^\\s]+) origin:([^\\s]+) pattern:([^\\s]+) timestamp:([^\\s]+) messageID:([^\\s]+)");
         mapPattern = Pattern.compile("\\|?\\s*([^\\s|=]+)\\s*=\\s*([0-9]*\\.?[0-9]+)");
     }
 
@@ -59,7 +59,6 @@ public class HybridOperator extends CoProcessFunction<Event, String, Event> {
             Double value = Double.valueOf(selMatcher.group(2));
             sheddingRates.put(key, value);
         } 
-        oLog.info("Updated sheddingRates in operator " + core.operator.name + "for message: " + mapToken + "with internal representation: " + core.sheddingRates.toString());
     }
 
     @Override
@@ -85,6 +84,8 @@ public class HybridOperator extends CoProcessFunction<Event, String, Event> {
             desc = headerMatcher.group(2);
             origin = headerMatcher.group(3);
             pattern = headerMatcher.group(4);
+            String ts = headerMatcher.group(5);
+            String id = headerMatcher.group(6);
         }
 
         //oLog.info("Received kafka message in " + core.operator.name + " with description: " + desc + ". Set for shedding coordination.");
@@ -102,6 +103,7 @@ public class HybridOperator extends CoProcessFunction<Event, String, Event> {
             // because it doesn't make a difference from a parsing perspective and we update the object the core uses
             case "sheddingRatesMap" : 
                 integrateRates(mapToken);
+                oLog.info("Updated sheddingRates in operator " + core.operator.name + "for message: " + msg);
                 break;
             
             case "aggSelectivity" :

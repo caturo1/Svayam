@@ -35,13 +35,13 @@ import org.uni.potsdam.p1.types.Scope;
  * that send it events).
  * </p>
  */
-public abstract class Settings4Layer {
+public abstract class Settings3Layers {
 
   // GENERAL JOB INFORMATION
-  public static final int RECORDS_PER_SECOND = 100;
-  public static final int CONTROL_BATCH_SIZE = 100;
-  public static final int BATCH_SIZE = 10_000;
-  public static final double LATENCY_BOUND = 0.00055;
+  public static final int RECORDS_PER_SECOND = 1000;
+  public static final int CONTROL_BATCH_SIZE = 1000;
+  public static final int BATCH_SIZE = 50_000;
+  public static final double LATENCY_BOUND = 0.000055;
   public static final int TIME_WINDOW = 5;
   public static final Scope SCOPE = Scope.HYBRID;
   public static final long FACTOR = (long)(1/700.*1E9);
@@ -83,7 +83,7 @@ public abstract class Settings4Layer {
       .withExecutionGroup("o2")
       .withPatterns(
         EventPattern.SEQ("21", "0|2:1|1", TIME_WINDOW, "o4"),
-        EventPattern.AND("22", "0:3", TIME_WINDOW, new String[] {"o5", "o6"})
+        EventPattern.OR("22", "0:3", TIME_WINDOW, new String[] {"o5", "o6"})
       ),
 
     new OperatorInfo()
@@ -103,7 +103,7 @@ public abstract class Settings4Layer {
       .withLatencyBound(LATENCY_BOUND)
       .withExecutionGroup("o4")
       .withPatterns(
-        EventPattern.SEQ("41", "11|2:21|1", TIME_WINDOW, "o8")
+        EventPattern.SEQ("41", "11|2:21|1", TIME_WINDOW, new String[]{"o10","o12"})
       ),
 
     new OperatorInfo()
@@ -113,7 +113,7 @@ public abstract class Settings4Layer {
       .withLatencyBound(LATENCY_BOUND)
       .withExecutionGroup("o5")
       .withPatterns(
-        EventPattern.SEQ("51", "11|1:22|2", TIME_WINDOW, "o8")
+        EventPattern.SEQ("51", "11|1:22|2", TIME_WINDOW, "o10")
       ),
 
     new OperatorInfo()
@@ -123,8 +123,8 @@ public abstract class Settings4Layer {
       .withLatencyBound(LATENCY_BOUND)
       .withExecutionGroup("o6")
       .withPatterns(
-        EventPattern.AND("61", "31:22", TIME_WINDOW, "o8"),
-        EventPattern.SEQ("62", "22|2:31|1", TIME_WINDOW, "o9")
+        EventPattern.AND("61", "31:22", TIME_WINDOW, new String[]{"o10","o11"}),
+        EventPattern.SEQ("62", "22|2:31|1", TIME_WINDOW, "o12")
       ),
 
     new OperatorInfo()
@@ -134,61 +134,42 @@ public abstract class Settings4Layer {
       .withLatencyBound(LATENCY_BOUND)
       .withExecutionGroup("o7")
       .withPatterns(
-        EventPattern.SEQ("71", "31|1:11|2", TIME_WINDOW, new String[]{"o12", "o9"})
+        EventPattern.OR("71", "31|1:11|2", TIME_WINDOW, new String[]{"o11", "o12"})
       ),
 
-    new OperatorInfo()
-      .withName("o8")
-      .withInputTypes("41 51 61".split(" "))
-      .withControlBatchSize(CONTROL_BATCH_SIZE)
-      .withLatencyBound(LATENCY_BOUND)
-      .withExecutionGroup("o8")
-      .withPatterns(
-        EventPattern.AND("81", "41:61", TIME_WINDOW, "o10"),
-        EventPattern.SEQ("82", "51|2:61|1", TIME_WINDOW, "o11"),
-        EventPattern.SEQ("83", "61|1:41|3", TIME_WINDOW, "o12")
-      ),
-
-    new OperatorInfo()
-      .withName("o9")
-      .withInputTypes("62 71".split(" "))
-      .withControlBatchSize(CONTROL_BATCH_SIZE)
-      .withLatencyBound(LATENCY_BOUND)
-      .withExecutionGroup("o9")
-      .withPatterns(
-        EventPattern.AND("91", "62:71", TIME_WINDOW, new String[]{"o10", "o11"})
-      ),
 
     new OperatorInfo()
       .withName("o10")
-      .withInputTypes("81 91".split(" "))
+      .withInputTypes("41 51 61".split(" "))
       .withControlBatchSize(CONTROL_BATCH_SIZE)
       .withLatencyBound(LATENCY_BOUND)
       .withExecutionGroup("o10")
       .withPatterns(
-        EventPattern.SEQ("101", "81|6:91|1", TIME_WINDOW)
+        EventPattern.AND("101", "41:51:61", TIME_WINDOW)
       )
       .toSink(),
 
     new OperatorInfo()
       .withName("o11")
-      .withInputTypes("82 91".split(" "))
+      .withInputTypes("61 71".split(" "))
       .withControlBatchSize(CONTROL_BATCH_SIZE)
       .withLatencyBound(LATENCY_BOUND)
       .withExecutionGroup("o11")
       .withPatterns(
-        EventPattern.SEQ("111", "82|1:91|2", TIME_WINDOW)
+        EventPattern.SEQ("111", "61|1:71|2", TIME_WINDOW)
       )
       .toSink(),
 
     new OperatorInfo()
       .withName("o12")
-      .withInputTypes("71 83".split(" "))
+      .withInputTypes("41 62 71".split(" "))
       .withControlBatchSize(CONTROL_BATCH_SIZE)
       .withLatencyBound(LATENCY_BOUND)
       .withExecutionGroup("o12")
       .withPatterns(
-        EventPattern.AND("121", "71:83", TIME_WINDOW)
+        EventPattern.AND("121", "41:71", TIME_WINDOW),
+        EventPattern.SEQ("121", "71|2:62|1", TIME_WINDOW)
+        
       )
       .toSink(),
   };

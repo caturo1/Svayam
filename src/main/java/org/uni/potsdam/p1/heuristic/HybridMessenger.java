@@ -25,7 +25,7 @@ public class HybridMessenger extends ProcessFunction<String, String>{
         opName = operator.name;
         kafkaToAnalyser = k2A;
         kafkaToOperator = k2O;
-        headerPattern = Pattern.compile("target:([^\\s]+) description:([^\\s]+) origin:([^\\s]+) pattern:([^\\s]+) timestamp:([^\\s]+)");
+        headerPattern = Pattern.compile("target:([^\\s]+) description:([^\\s]+) origin:([^\\s]+) pattern:([^\\s]+) timestamp:([^\\s]+) messageID:([^\\s]+)");
     }
 
     @Override
@@ -48,6 +48,7 @@ public class HybridMessenger extends ProcessFunction<String, String>{
             origin = matchHeader.group(3);
             String pattern = matchHeader.group(4);
             String timestamp = matchHeader.group(5);
+            String msgID = matchHeader.group(6);
 
             
             if (desc.equals("") || origin.equals("") || segments.length < 2) {
