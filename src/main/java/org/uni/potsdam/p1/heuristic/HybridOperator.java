@@ -30,6 +30,7 @@ public class HybridOperator extends CoProcessFunction<Event, String, Event> {
     
     public HybridOperator(OperatorInfo operatorInfo) {
         this.core = new HybridOperatorCore(operatorInfo);
+        // this might never reach the actual core
         sheddingRates = core.sheddingRates;
         isShedding = core.isShedding;
 
@@ -53,12 +54,12 @@ public class HybridOperator extends CoProcessFunction<Event, String, Event> {
 
     public void integrateRates(String mapToken) {
         Matcher selMatcher = mapPattern.matcher(mapToken);
-
         while (selMatcher.find()) {
             String key = selMatcher.group(1);
             Double value = Double.valueOf(selMatcher.group(2));
             sheddingRates.put(key, value);
         } 
+        oLog.info("Updated sheddingRates in operator " + core.operator.name + "for message: " + mapToken + "with internal representation: " + core.sheddingRates.toString());
     }
 
     @Override
@@ -86,7 +87,7 @@ public class HybridOperator extends CoProcessFunction<Event, String, Event> {
             pattern = headerMatcher.group(4);
         }
 
-        oLog.info("Received kafka message with description: " + desc + ". Set for shedding coordination.");
+        //oLog.info("Received kafka message in " + core.operator.name + " with description: " + desc + ". Set for shedding coordination.");
 
         switch(desc) {
             case "startShedding" : 

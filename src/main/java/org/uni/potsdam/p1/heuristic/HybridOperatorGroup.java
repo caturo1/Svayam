@@ -28,8 +28,8 @@ public class HybridOperatorGroup extends AbstractOperatorGroup {
     // thisOperator -> downStreamAnalyzer
 
     public final MetricsOutput toThisAnalyser;
-    public final StringOutput analyserInput;
-    public final MetricsOutput downstreamAnalyser;
+    public final StringOutput a2a;
+    //public final MetricsOutput downstreamAnalyser;
     public final EventOutput downstream;
     public StringOutput toKafka;
     public StringOutput kafkaToAnalyser;
@@ -55,12 +55,12 @@ public class HybridOperatorGroup extends AbstractOperatorGroup {
 
         operator = new HybridOperator(operatorInfo);
         
-        analyserInput = new StringOutput("to_analyser_" + operatorInfo.name);
+        a2a = new StringOutput("to_analyser_" + operatorInfo.name);
         kafkaToAnalyser = new StringOutput("kafka_to_analyser_" + operatorInfo.name);
         kafkaToOperator = new StringOutput("kafka_to_operator_" + operatorInfo.name);
         toThisAnalyser = new MetricsOutput("op_to_analyser_" + operatorInfo.name);
         downstream = new EventOutput("downstream" + operatorInfo.name);  
-        downstreamAnalyser = new MetricsOutput("downstream" + operatorInfo.name);  
+        //downstreamAnalyser = new MetricsOutput("downstream" + operatorInfo.name);  
         
         messenger = new HybridMessenger(operatorInfo, kafkaToAnalyser, kafkaToOperator);
         analyser = new HybridAnalyser(operatorInfo);
@@ -68,7 +68,7 @@ public class HybridOperatorGroup extends AbstractOperatorGroup {
         // we only need outputRate and processingTimes for shedding calculations
         operator.setMetricsOutput("lambdaOut", toThisAnalyser);
         operator.setMetricsOutput("ptime", toThisAnalyser);
-        operator.setMetricsOutput("lambdaOut", downstreamAnalyser);
+        //operator.setMetricsOutput("lambdaOut", downstreamAnalyser);
     }
 
     /**
@@ -190,7 +190,7 @@ public class HybridOperatorGroup extends AbstractOperatorGroup {
             return;
         }
 
-        DataStream<String> incomingStream = sosStream.getSideOutput(analyserInput);
+        DataStream<String> incomingStream = sosStream.getSideOutput(a2a);
 
         if (analyserStringStream == null) {
             analyserStringStream = sosStream;

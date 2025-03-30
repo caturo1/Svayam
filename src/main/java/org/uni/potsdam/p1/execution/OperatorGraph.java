@@ -37,14 +37,14 @@ import java.util.regex.Pattern;
 /**
  * <p>
  * This class parses and executes the Flink-Query to be executed with global or local load
- * shedding properties in accordance to attributes defined in {@link Settings}.
+ * shedding properties in accordance to attributes defined in {@link Settings2Layer}.
  * It creates new sources ({@link Source}) and operator groups ({@link AbstractOperatorGroup})
  * using the information provided in the settings, connects them and prepares an
  * executable Flink-query which can be used in the {@link org.uni.potsdam.p1.DataStreamJob}'s
  * main method to deploy the job to a flink cluster.
  * </p>
  * <p>
- * If the setting GLOBAL_SCOPE is set to true in {@link Settings}, then this class assumes
+ * If the setting GLOBAL_SCOPE is set to true in {@link Settings2Layer}, then this class assumes
  * that the flink cluster is being executed in a docker network, in which a kafka server
  * is also reachable at kafka:9092. It assumes also that this kafka server contains the
  * topics global and globalOut. Failing to provide this will cause the application to fail.
@@ -54,7 +54,7 @@ import java.util.regex.Pattern;
  * contains kafka and flink and deploy this application there.
  * </p>
  */
-public class OperatorGraph extends SettingsExtended {
+public class OperatorGraph extends Settings3Layer {
   private static final Logger oLog = LoggerFactory.getLogger(OperatorGraph.class);
   Map<String, Source> sources;
   Map<String, AbstractOperatorGroup> operators;
@@ -132,12 +132,12 @@ public class OperatorGraph extends SettingsExtended {
                 // Replace your current topic selector with this for better debugging
                 .setTopicSelector(element -> {
                   String msg = (String) element;
-                  oLog.info("Topic selection for message of length: " + msg.length());
+                  //oLog.info("Topic selection for message of length: " + msg.length());
                   
                   try {
                       // Always log the first part of the message for debugging
                       String firstPart = msg.length() > 50 ? msg.substring(0, 50) + "..." : msg;
-                      oLog.info("Message content: " + msg);
+                      //oLog.info("Message content: " + msg);
                     
                       String targetPattern = "target:([^\\s]+)";
                       Pattern pattern = Pattern.compile(targetPattern);
@@ -145,7 +145,7 @@ public class OperatorGraph extends SettingsExtended {
                       
                       if (matcher.find()) {
                           String topic = matcher.group(1);
-                          oLog.info("Extracted topic: '" + topic + "'");
+                          //oLog.info("Extracted topic: '" + topic + "'");
                           return topic;
                       } else {
                         return "default";
@@ -223,6 +223,7 @@ public class OperatorGraph extends SettingsExtended {
       // Create Kafka consumers for each operator once
       for (OperatorInfo operator : OPERATORS) {
         String opName = operator.name;
+        
         KafkaSource<String> opConsumer = KafkaSource.<String>builder()
                 .setBootstrapServers(KAFKA_ADDRESS)
                 .setTopics(opName)

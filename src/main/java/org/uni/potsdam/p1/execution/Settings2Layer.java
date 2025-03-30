@@ -36,7 +36,7 @@ import org.uni.potsdam.p1.types.Scope;
  * that send it events).
  * </p>
  */
-public abstract class Settings {
+public abstract class Settings2Layer {
 
   // GENERAL JOB INFORMATION
 
@@ -45,7 +45,7 @@ public abstract class Settings {
   public static final int BATCH_SIZE = 10_000;
   public static final double LATENCY_BOUND = 0.00055;
   public static final int TIME_WINDOW = 10;
-  public static final Scope SCOPE = Scope.VARIANT;
+  public static final Scope SCOPE = Scope.HYBRID;
   public static final long FACTOR = (long)(1/700.*1E9);
 
 
@@ -90,22 +90,24 @@ public abstract class Settings {
       .withExecutionGroup("o2")
      ,
 
-     new OperatorInfo().withName("o3")
-       .withInputTypes("11 21".split(" "))
-       .withControlBatchSize(CONTROL_BATCH_SIZE)
-       .withLatencyBound(LATENCY_BOUND)
-       .withPatterns(
-         EventPattern.AND("1000", "11:21", TIME_WINDOW))
-       .toSink()
+     new OperatorInfo()
+      .withName("o3")
+      .withInputTypes("11 21".split(" "))
+      .withControlBatchSize(CONTROL_BATCH_SIZE)
+      .withLatencyBound(LATENCY_BOUND)
+      .withPatterns(
+        EventPattern.AND("1000", "11:21", TIME_WINDOW))
+      .toSink()
      ,
 
-     new OperatorInfo().withName("o4")
-       .withInputTypes("12 22".split(" "))
-       .withControlBatchSize(CONTROL_BATCH_SIZE)
-       .withLatencyBound(LATENCY_BOUND)
-       .withPatterns(
-         EventPattern.AND("2000", "12:22", TIME_WINDOW))
-       .toSink()
+     new OperatorInfo()
+      .withName("o4")
+      .withInputTypes("12 22".split(" "))
+      .withControlBatchSize(CONTROL_BATCH_SIZE)
+      .withLatencyBound(LATENCY_BOUND)
+      .withPatterns(
+        EventPattern.AND("2000", "12:22", TIME_WINDOW))
+      .toSink()
 
   };
 
