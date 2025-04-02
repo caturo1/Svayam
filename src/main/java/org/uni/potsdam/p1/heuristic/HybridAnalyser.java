@@ -35,6 +35,9 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
     public boolean isShedding = false;
     public boolean isOverloaded;
     public boolean collecting = false;
+    public boolean inputRateIsReady = false;
+    public boolean outputRateIsReady = false;
+    public boolean ptimesAreReady = false;
 
     //public double currentAveragePtime;
     //public double lastAveragePTime;
@@ -216,9 +219,11 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
      */
     @Override
     public void processElement1(Metrics metric, Context ctx, Collector<String> out) {
-        
+        boolean coldStartAvoided = inputRateIsReady && outputRateIsReady && ptimesAreReady;
+
         switch (metric.description) {
             case "ptime":
+                ptimesAreReady = true;
                 processingTimes = metric.map;
                 /*
                 if (!collecting) {
@@ -228,12 +233,14 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
 
                 break;
             case "lambdaOut":
+                outputRateIsReady = true;
                 if (metric.name.equals(opName) && metric != null /*&& !collecting*/) {
                     outputRates = metric.map;
                     break;
                 }
             
             case "lambdaIn":
+                inputRateIsReady = true;
                 // too lazy to remove the condition but want to keep the idead for now
                 if (!collecting || collecting) {
                     double diff = 0;
@@ -252,13 +259,11 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
                     newInputRates.put("total",newInputRates.get("total")+diff);
                     oldInputRates.put("total", oldTotal);
                 }
-                break;
-                
-                // Forward output rates to downstream analyzers 
-                // maybe catastrophic fault here since we can't forward a metric -- parse that shit and process in the second method wtf       
+                break;                
             }
 
             boolean cooledDown = true;
+
             if (collecting) {
                 long currentTime = System.currentTimeMillis();
                 long timeInterval = currentTime - traversalInitiation;
@@ -273,45 +278,47 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
             // we still get processingTimes smaller than the optimal time.
 
             // we can cut down processing time here by just checking overload in time intervals instead of every metric receival
-            double totalLambda = newInputRates.get("total");
-            double totalPtime = processingTimes.get("total");
-            double calculatedP = 0.;
+            if (coldStartAvoided) {
+                double totalLambda = newInputRates.get("total");
+                double totalPtime = processingTimes.get("total");
+                double calculatedP = 0.;
 
-            for (String key : operator.inputTypes) {
-                double weight = 0;
-                    for (String key2 : operator.outputTypes) {
-                        double share = isShedding ? (1 - shedder.sheddingRates.get(key2 + "_" + key)) : 1;
-                        weight += share * processingTimes.get(key2);
-                    }
-            calculatedP += (newInputRates.get(key) / (totalLambda == 0 ? 1 : totalLambda)) * weight;
-            }
+                for (String key : operator.inputTypes) {
+                    double weight = 0;
+                        for (String key2 : operator.outputTypes) {
+                            double share = isShedding ? (1 - shedder.sheddingRates.get(key2 + "_" + key)) : 1;
+                            weight += share * processingTimes.get(key2);
+                        }
+                calculatedP += (newInputRates.get(key) / (totalLambda == 0 ? 1 : totalLambda)) * weight;
+                }
 
 
-            double B = Math.max(0, (1 / ((1 / (calculatedP == 0 ? 1 : calculatedP)) - totalLambda)));
-            boolean pHasChanged = calculatedP > 1.1 * lastAverage;
-            boolean lambdaHasChanged = totalLambda > 1.05 * lastLambda;
-            boolean ptimeHasChanged = totalPtime > 1.05 * lastPtime;
+                double B = Math.max(0, (1 / ((1 / (calculatedP == 0 ? 1 : calculatedP)) - totalLambda)));
+                boolean pHasChanged = calculatedP > 1.1 * lastAverage;
+                boolean lambdaHasChanged = totalLambda > 1.05 * lastLambda;
+                boolean ptimeHasChanged = totalPtime > 1.05 * lastPtime;
 
-            double upperBound = 1 / ((1 / bound) + totalLambda);
-            double lowerBound = upperBound * 0.95;
-            double sheddingExit = upperBound * 0.85;
-            
-            if (calculatedP >= lowerBound || ((pHasChanged || lambdaHasChanged || ptimeHasChanged) && B > bound)) {
-                if (/*!isShedding &&*/!collecting && !isOverloaded) {
-                    overloadDetected(ctx, out);
+                double upperBound = 1 / ((1 / bound) + totalLambda);
+                double lowerBound = upperBound * 0.95;
+                double sheddingExit = upperBound * 0.85;
+                
+                if (calculatedP >= lowerBound || ((pHasChanged || lambdaHasChanged || ptimeHasChanged) && B > bound) && coldStartAvoided) {
+                    if (/*!isShedding &&*/!collecting && !isOverloaded) {
+                        overloadDetected(ctx, out);
+                        lastAverage = calculatedP;
+                        lastPtime = totalPtime;
+                        lastLambda = totalLambda;
+                        return;
+                    } 
+                // when do we want to stop shedding really? Because if we stop prematurely in the traversal, we have to synchronize this overall
+                //if we are collecting, we always set the shedding flag, so the check is not really necessary I think
+                } else if (isShedding && (totalPtime < sheddingExit) && !collecting && cooledDown && coldStartAvoided) {
+                    recoverFromOverload(ctx);
                     lastAverage = calculatedP;
                     lastPtime = totalPtime;
                     lastLambda = totalLambda;
                     return;
-                } 
-            // when do we want to stop shedding really? Because if we stop prematurely in the traversal, we have to synchronize this overall
-            //if we are collecting, we always set the shedding flag, so the check is not really necessary I think
-            } else if (isShedding && (totalPtime < sheddingExit) && !collecting && cooledDown) {
-                recoverFromOverload(ctx);
-                lastAverage = calculatedP;
-                lastPtime = totalPtime;
-                lastLambda = totalLambda;
-                return;
+                }
             }
         }   
 
@@ -333,7 +340,7 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
                 String pType = pattern.getType();
                 
                 if (pType.equals("AND") || pType.equals("SEQ")) {
-                    double currentSel = selectivities.get(name) == 0 || !selectivities.containsKey(name) ? Double.POSITIVE_INFINITY : selectivities.get(name);
+                    double currentSel = selectivities.get(name) == 0 || selectivities.get(name) == -1 || !selectivities.containsKey(name) ? Double.POSITIVE_INFINITY : selectivities.get(name);
                     
                     for (String eventType : eventFrequency.keySet()) {
                         currentSel = newInputRates.get(eventType) > 0 ? Math.min(newInputRates.get(eventType) / eventFrequency.get(eventType), currentSel) : 0.;
@@ -344,8 +351,7 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
                 }
                 
                 else if (pType.equals("OR")) {
-                    aLog.info("Accessing probably fraudulent pattern.");
-                    double currentSelOr = selectivities.get(name) == 0 || !selectivities.containsKey(name) ? Double.NEGATIVE_INFINITY : selectivities.get(name);
+                    double currentSelOr = selectivities.get(name) == 0 || selectivities.get(name) == -1 || !selectivities.containsKey(name) ? Double.NEGATIVE_INFINITY : selectivities.get(name);
                     for (String eventType : eventFrequency.keySet()) {
                         currentSelOr = Math.max(newInputRates.get(eventType) / eventFrequency.get(eventType), currentSelOr);
                     }
@@ -365,8 +371,8 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
             aLog.info("Local selectivities in " + opName + " of: " + selectivities.toString());
         }
         selectivities.put("birth", Double.valueOf(System.currentTimeMillis()));
+        aLog.info("Successfully updates selectivities in " + opName + " as: " + selectivities.toString());
             //var res = this.selectivities.put("birth", Double.valueOf(System.currentTimeMillis()));
-            //aLog.info("Successfully updates selectivities in " + opName);
             //aLog.info("Processing times in " + opName + parseMapToString(processingTimes, opName, opName, opName));
             //aLog.info("InputRates in " + opName + parseMapToString(newInputRates, opName, opName, opName));
             //aLog.info("OutputRates in " + opName + parseMapToString(outputRates, opName, opName, opName));
@@ -697,130 +703,6 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
             }
         }
     }
-/*
-    public boolean calculateSheddingRates() {
-        // optimal processing time
-        pStar = 1. / ((1. / bound) + newInputRates.get("total"));
-        double totalProcessingTime = processingTimes.get("total");
-        double totalInputRate = newInputRates.get("total");
-        double totalOutputRate = outputRates.get("total");
-        // current processing tme: sum_{t in T} (lambda_t / lamdba_in) * ptime_t
-        double p = Math.max(0, Arrays.stream(operator.inputTypes).map(inputType -> 
-            (totalInputRate > 0 ? newInputRates.get(inputType) / totalInputRate : 0.) * totalProcessingTime).reduce(0., Double::sum));
-        // processing rates are tiny, therefore we will never receive sheddingRates, that do anything really
-        double violation = Math.min(1.0, Math.max(0.0, (p - pStar) / pStar));
-
-        //aLog.info("Data structures safe to access: {}", this.selectivities != null && this.newInputRates!=null && this.outputRates != null && this.processingTimes != null);
-        aLog.info("Currently in " + opName + ": p: " + p + " p*: " + pStar + " violation: " + violation + "for " + totalInputRate + totalOutputRate + totalProcessingTime);
-
-        try {
-            // issue: If we don't detect an overload anymore, do we even shed?
-            // no violation means no shedding, so theoretically this might be sound
-            // but if we receive a downstream selectivity, that we integrate usign the latest metrics
-            // and detect we are not overloaded, we rest the shedding rates completely
-            // even though we might still be collecting selectivities
-            if (violation <= 0 && isShedding) {
-                aLog.info("Despite detected overload, we don't shed in " + opName + "since p: " + p + " is smaller than P*: " + pStar);
-                //for (String key : sheddingRates.map.keySet()) {
-                //    sheddingRates.put(key, 0.);
-                //}
-                return false;
-            }
-    
-            for (EventPattern pattern : operator.patterns) {
-                String patternName = pattern.name;
-                Map<String, Integer> weights = operator.getPattern(patternName).getWeightMaps();
-                aLog.info("Weight map in " + opName + ": " + weights.toString());
-            
-                double patternPtime = processingTimes.getOrDefault(patternName, 0.);
-                double patternOutputRate = outputRates.get(patternName);
-                double patternSelectivity = selectivities.getOrDefault(patternName, 0.);
-                double patternImportance = patternOutputRate > 0 ? patternSelectivity / outputRates.getOrDefault("total", 1.) : 0.;
-    
-                double patternSpecificInput = 0.;
-                for (String inputType : weights.keySet()) {
-                    patternSpecificInput += newInputRates.getOrDefault(inputType, 0.);
-                }
-    
-                for (String input : weights.keySet()) {
-                    int weight = weights.get(input);
-                    double inputRate = newInputRates.getOrDefault(input, 0.);
-                    double inputRatio = patternSpecificInput > 0 ? inputRate / patternSpecificInput : 0;
-                    double processingShare = patternPtime > 0 ? patternPtime / totalProcessingTime : 0;
-                    double inputImportance = inputRatio * (1. / weight) * processingShare;
-                    double combinedImportance = patternImportance * inputImportance;
-                    double sheddingRate = Math.max(0, violation * (1. - combinedImportance));
-    
-                    sheddingRates.put(patternName + "_" + input, sheddingRate);
-                }
-            }
-            //aLog.info("Calculated for selectivity initial sheddingRates in " + operator.name+ "with selectivities: " + parseMapToString(selectivities, opName, opName, opName));
-            return true;
-        }
-
-        catch (Exception e) {
-            aLog.debug("Exception while calculating sheddingRates " + e);
-            throw new RuntimeException("Exception while calculating individual sheddingRates " + e);
-        }
-    }
-
-
-    public Map<String,Double> calculateSheddingRates(String patternName) {
-        pStar = 1. / ((1. / bound) + newInputRates.get("total"));
-        double totalProcessingTime = processingTimes.get("total");
-        double totalInputRate = newInputRates.get("total");
-        double totalOutputRate = outputRates.get("total");
-        // current processing tme: sum_{t in T} (lambda_t / lamdba_in) * ptime_t
-        double p = Math.max(0, Arrays.stream(operator.inputTypes).map(inputType -> 
-            (totalInputRate > 0 ? newInputRates.get(inputType) / totalInputRate : 0.) * totalProcessingTime).reduce(0., Double::sum));
-        double violation = Math.min(1.0, Math.max(0.0, (p - pStar) / pStar));
-        //aLog.info("Data structures safe to access: {}", this.selectivities != null && this.newInputRates!=null && this.outputRates != null && this.processingTimes != null);
-        Map<String, Double> patternSpecificRates = new HashMap<>();
-        Map<String, Integer> weights = operator.getPattern(patternName).getWeightMaps();
-
-        if (violation <= 0) {
-            for (String key : patternSpecificRates.keySet()) {
-                patternSpecificRates.put(key, 0.);
-            }
-            return patternSpecificRates; 
-        }
-
-        try {
-            
-            double patternPtime = processingTimes.get(patternName);
-            double patternOutputRate = outputRates.get(patternName);
-            double patternSelectivity = selectivities.get(patternName);
-            double patternImportance = patternOutputRate > 0 ? patternSelectivity / outputRates.get("total") : 0.;
-    
-            double patternSpecificInput = 0.;
-            for (String inputType : weights.keySet()) {
-                patternSpecificInput += newInputRates.get(inputType);
-            }
-            
-            for (String input : weights.keySet()) {
-                int weight = weights.get(input);
-                //aLog.info("About to calculate rates for pattern: " + patternName + " with weights: " + weights);
-                double inputRate = newInputRates.get(input);
-                double inputRatio = patternSpecificInput > 0 ? inputRate / patternSpecificInput : 0;
-                double processingShare = patternPtime > 0 ? patternPtime / totalProcessingTime : 0;
-                double inputImportance = inputRatio * (1. / weight) * processingShare;
-                double combinedImportance = patternImportance * inputImportance;
-                double sheddingRate = Math.max(0, violation * (1. - combinedImportance));
-                
-                sheddingRates.put(patternName + "_" + input, sheddingRate);
-                patternSpecificRates.put(patternName + "_" + input, sheddingRate);
-                //aLog.info("Calculated selectivity specific sheddingRates in " + operator.name);
-            }
-            aLog.info("Used downstream selectivities to update sheddingRates in " + opName);
-            return patternSpecificRates;
-        } catch (Exception e) {
-            aLog.debug("Exception while calculating individual sheddingRates " + e);
-            throw new RuntimeException("Exception while calculating individual sheddingRates " + e);
-        }
-    }
-    
-    */
-
 
     /**
      * Process string type messages from
@@ -889,14 +771,14 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
 
         while (matcher.find()) {
             outputType = matcher.group(1);
-            aggSel = Double.valueOf(matcher.group(2));
+            aggSel = matcher.group(2) == "Infinity" ? Double.POSITIVE_INFINITY : Double.valueOf(matcher.group(2));
         }
 
-        aLog.info("Selectivities from upstream in " + opName + "for input " + outputType + " are " + aggSel);
-
+        
         ArrayList<String[]> candidates = inputToOutput.get(outputType); 
         // 1a. We are NOT the target operator of the message, thus receive an upstream message
         if (!msgTarget.equals(opName)) {
+            aLog.info("Selectivities from upstream in " + opName + "for input " + outputType + " are " + aggSel + ". With the send message:" + msg);
             Double updatedAggSel = Double.min(newInputRates.get(outputType), aggSel);
 
             // if we are the sink and recv upstream msg, forward final sels back to target operator from the message
@@ -973,7 +855,7 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
 
         // 1b. We ARE the target operator, thus receive a downstream selectivity (only when we initiated the traversal prior to this)
         else {
-
+            aLog.info("Selectivities from downstream in " + opName + "for input " + outputType + " are " + aggSel + ". With the send message:" + msg);
             if (operator.isSinkOperator) {
                 throw new IllegalArgumentException("The sink operator should not receive downstream messages");
             }

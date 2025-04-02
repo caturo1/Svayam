@@ -30,7 +30,7 @@ public class LoadShedSelector implements Serializable {
 
         for (String inputType : operator.inputTypes) {
             for (String outType : operator.outputTypes) {
-                sheddingRates.put(outType + "_" + inputType, 0.);
+                sheddingRates.put(outType + "_" + inputType, -1.);
             }
         }
     }
@@ -73,14 +73,15 @@ public class LoadShedSelector implements Serializable {
                 sLog.info("Weight map in " + opName + ": " + weights.toString());
             
                 double patternPtime = ptimes.getOrDefault(patternName, 0.);
-                double patternOutputRate = outputRates.get(patternName);
-                double patternSelectivity = selectivities.getOrDefault(patternName, 0.);
-                double patternImportance = patternOutputRate > 0 ? patternSelectivity / outputRates.getOrDefault("total", 1.) : 0.;
+                double patternSelectivity = selectivities != null ? selectivities.getOrDefault(patternName, 0.) : 0.;
     
                 double patternSpecificInput = 0.;
                 for (String inputType : weights.keySet()) {
                     patternSpecificInput += inputRates.getOrDefault(inputType, 0.);
                 }
+                //physical constraint of limiting the outputRates to inputRates
+                double patternOutputRate = Math.min(outputRates.getOrDefault(patternName, 0.), patternSpecificInput);
+                double patternImportance = patternOutputRate > 0 ? patternSelectivity / outputRates.getOrDefault("total", 1.) : 0.;
     
                 for (String input : weights.keySet()) {
                     int weight = weights.get(input);
@@ -115,7 +116,7 @@ public class LoadShedSelector implements Serializable {
         pStar = 1. / ((1. / bound) + inputRates.get("total"));
         double totalProcessingTime = ptimes.get("total");
         double totalInputRate = inputRates.get("total");
-        double totalOutputRate = outputRates.get("total");
+        double totalOutputRate = Math.min(outputRates.get("total"), inputRates.get("total"));
         // current processing tme: sum_{t in T} (lambda_t / lamdba_in) * ptime_t
         double p = Arrays.stream(operator.inputTypes).map(inputType -> (totalInputRate>0.?inputRates.get(inputType) / totalInputRate : 0.) * totalProcessingTime).reduce(0., Double::sum);
         double violation = Math.min(1.0, Math.max(0.0, (p - pStar) / pStar));
@@ -126,14 +127,15 @@ public class LoadShedSelector implements Serializable {
             Map<String, Integer> weights = operator.getPattern(patternName).getWeightMaps();
             
             double patternPtime = ptimes.getOrDefault(patternName, 0.);
-            double patternOutputRate = outputRates.getOrDefault(patternName, 0.);
             double patternSelectivity = selectivities.getOrDefault(patternName, 0.);
-            double patternImportance = patternOutputRate > 0 ? patternSelectivity / outputRates.getOrDefault("total", 1.) : 0.;
-    
+            
             double patternSpecificInput = 0.;
             for (String inputType : weights.keySet()) {
                 patternSpecificInput += inputRates.getOrDefault(inputType, 0.);
             }
+            
+            double patternOutputRate = Math.min(outputRates.getOrDefault(patternName, 0.), patternSpecificInput);
+            double patternImportance = patternOutputRate > 0 ? patternSelectivity / outputRates.getOrDefault("total", 1.) : 0.;
             
             for (String input : weights.keySet()) {
                 int weight = weights.get(input);

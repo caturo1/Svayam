@@ -177,7 +177,7 @@ public abstract class Settings3Layers {
       .withExecutionGroup("o12")
       .withPatterns(
         EventPattern.AND("121", "41:71", TIME_WINDOW),
-        EventPattern.SEQ("121", "71|2:62|1", TIME_WINDOW)
+        EventPattern.SEQ("122", "71|2:62|4", TIME_WINDOW)
         
       )
       .toSink(),
