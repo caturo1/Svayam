@@ -21,18 +21,12 @@ public class HybridOperator extends CoProcessFunction<Event, String, Event> {
     
     private static final Logger oLog = LoggerFactory.getLogger(HybridOperator.class);
     public final HybridOperatorCore core;
-    public Metrics sheddingRates;
-
     public Pattern headerPattern;
     public Pattern mapPattern;
-
-    public boolean isShedding;
     
     public HybridOperator(OperatorInfo operatorInfo) {
         this.core = new HybridOperatorCore(operatorInfo);
         // this might never reach the actual core
-        sheddingRates = core.sheddingRates;
-        isShedding = core.isShedding;
 
         headerPattern = Pattern.compile("target:([^\\s]+) description:([^\\s]+) origin:([^\\s]+) pattern:([^\\s]+) timestamp:([^\\s]+) messageID:([^\\s]+)");
         mapPattern = Pattern.compile("\\|?\\s*([^\\s|=]+)\\s*=\\s*([0-9]*\\.?[0-9]+)");
@@ -57,7 +51,7 @@ public class HybridOperator extends CoProcessFunction<Event, String, Event> {
         while (selMatcher.find()) {
             String key = selMatcher.group(1);
             Double value = Double.valueOf(selMatcher.group(2));
-            sheddingRates.put(key, value);
+            core.sheddingRates.put(key, value);
         } 
     }
 
@@ -92,18 +86,18 @@ public class HybridOperator extends CoProcessFunction<Event, String, Event> {
 
         switch(desc) {
             case "startShedding" : 
-                isShedding = true;
+                core.isShedding = true;
                 break;
             
             case "stopShedding" :
-                isShedding = false;
+                core.isShedding = false;
                 break;
 
             // covers the case of sending the initial map and updated selectivities for just the inputs to one specific pattern
             // because it doesn't make a difference from a parsing perspective and we update the object the core uses
             case "sheddingRatesMap" : 
                 integrateRates(mapToken);
-                oLog.info("Updated sheddingRates in operator " + core.operator.name + "for message: " + msg);
+                //oLog.info("Updated sheddingRates in operator " + core.operator.name + "for message: " + msg);
                 break;
             
             case "aggSelectivity" :

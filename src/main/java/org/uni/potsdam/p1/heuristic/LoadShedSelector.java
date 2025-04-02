@@ -14,21 +14,16 @@ import org.uni.potsdam.p1.types.OperatorInfo;
 public class LoadShedSelector implements Serializable {
     
     public OperatorInfo operator;
-    public Map<String, Double> inputRates;
-    public Map<String,Double> outputRates;
-    public Map<String, Double> ptimes; 
+    public String opName;
     public Metrics sheddingRates;
-    public Map<String,Double> selectivities; 
     public double bound;
     public double pStar;
     private static final Logger sLog = LoggerFactory.getLogger(LoadShedSelector.class);
     
-    public LoadShedSelector(OperatorInfo operator, Map<String,Double> selectivities, Map<String,Double> inputRates, Map<String,Double> outputRates, Map<String,Double> ptimes) {
+    public LoadShedSelector(OperatorInfo operator) {
         this.operator = operator;
-        this.selectivities = selectivities;
-        this.inputRates = inputRates;
-        this.outputRates = outputRates;
-        this.ptimes = ptimes;
+        this.opName = operator.name;
+
         bound = operator.latencyBound;
         
         this.sheddingRates = new Metrics(operator.name, "shares", operator.outputTypes.length * operator.inputTypes.length + 1);
@@ -38,15 +33,13 @@ public class LoadShedSelector implements Serializable {
                 sheddingRates.put(outType + "_" + inputType, 0.);
             }
         }
-
-        sLog.info("Shedder initiated with pstar" + pStar + "and running data structures {} ", selectivities != null && inputRates!=null && outputRates != null && ptimes != null);
     }
 
     /**
      * Calculate shedding rates via side effects on the objects
      * such that the analyzer itself can forward the information properly
      */
-    public void calculateSheddingRates() {
+    public boolean calculateSheddingRates(boolean isShedding, Map<String, Double> inputRates, Map<String, Double> outputRates, Map<String, Double> ptimes, Map<String, Double> selectivities) {
         // optimal processing time
         pStar = 1. / ((1. / bound) + inputRates.get("total"));
         double totalProcessingTime = ptimes.get("total");
@@ -55,23 +48,32 @@ public class LoadShedSelector implements Serializable {
         // current processing tme: sum_{t in T} (lambda_t / lamdba_in) * ptime_t
         double p = Math.max(0, Arrays.stream(operator.inputTypes).map(inputType -> 
             (totalInputRate > 0 ? inputRates.get(inputType) / totalInputRate : 0.) * totalProcessingTime).reduce(0., Double::sum));
-        double violation = Math.max(0, pStar > 0 ? (1 - pStar / p) : 0);
-        sLog.info("Data structures safe to access: {}", this.selectivities != null && this.inputRates!=null && this.outputRates != null && this.ptimes != null);
-        sLog.info("Currenly: p: " + p + "p*: " + pStar + "violation: " + violation);
+        // processing rates are tiny, therefore we will never receive sheddingRates, that do anything really
+        double violation = Math.min(1.0, Math.max(0.0, (p - pStar) / pStar));
+
+        //aLog.info("Data structures safe to access: {}", this.selectivities != null && this.inputRates!=null && this.outputRates != null && this.ptimes != null);
+
         try {
-            if (violation <= 0) {
-                for (String key : sheddingRates.map.keySet()) {
-                    sheddingRates.put(key, 0.);
-                }
-                return;
+            // issue: If we don't detect an overload anymore, do we even shed?
+            // no violation means no shedding, so theoretically this might be sound
+            // but if we receive a downstream selectivity, that we integrate usign the latest metrics
+            // and detect we are not overloaded, we rest the shedding rates completely
+            // even though we might still be collecting selectivities
+            if (violation <= 0 && isShedding) {
+                sLog.info("Despite detected overload, we don't shed in " + opName + "since p: " + p + " is smaller than P*: " + pStar);
+                //for (String key : sheddingRates.map.keySet()) {
+                //    sheddingRates.put(key, 0.);
+                //}
+                return false;
             }
     
             for (EventPattern pattern : operator.patterns) {
                 String patternName = pattern.name;
                 Map<String, Integer> weights = operator.getPattern(patternName).getWeightMaps();
+                sLog.info("Weight map in " + opName + ": " + weights.toString());
             
                 double patternPtime = ptimes.getOrDefault(patternName, 0.);
-                double patternOutputRate = outputRates.getOrDefault(patternName, 0.);
+                double patternOutputRate = outputRates.get(patternName);
                 double patternSelectivity = selectivities.getOrDefault(patternName, 0.);
                 double patternImportance = patternOutputRate > 0 ? patternSelectivity / outputRates.getOrDefault("total", 1.) : 0.;
     
@@ -92,11 +94,13 @@ public class LoadShedSelector implements Serializable {
                     sheddingRates.put(patternName + "_" + input, sheddingRate);
                 }
             }
-            sLog.info("Calculated selectivity initial sheddingRates in " + operator.name);
+            //aLog.info("Calculated for selectivity initial sheddingRates in " + operator.name+ "with selectivities: " + parseMapToString(selectivities, opName, opName, opName));
+            return true;
         }
 
         catch (Exception e) {
-            sLog.info("Exception while calculating sheddingRates " + e);
+            sLog.debug("Exception while calculating sheddingRates " + e);
+            throw new RuntimeException("Exception while calculating individual sheddingRates " + e);
         }
     }
     
@@ -107,15 +111,15 @@ public class LoadShedSelector implements Serializable {
      *
      * @param patternName name of the pattern, whose sheddingRate we will have to update according to the latest selectivity and data from the analyzer
      */
-    public Map<String,Double> calculateSheddingRates(String patternName) {
+    public Map<String,Double> calculateSheddingRates(String patternName, Map<String, Double> inputRates, Map<String, Double> outputRates, Map<String, Double> ptimes, Map<String, Double> selectivities) {
         pStar = 1. / ((1. / bound) + inputRates.get("total"));
         double totalProcessingTime = ptimes.get("total");
         double totalInputRate = inputRates.get("total");
         double totalOutputRate = outputRates.get("total");
         // current processing tme: sum_{t in T} (lambda_t / lamdba_in) * ptime_t
         double p = Arrays.stream(operator.inputTypes).map(inputType -> (totalInputRate>0.?inputRates.get(inputType) / totalInputRate : 0.) * totalProcessingTime).reduce(0., Double::sum);
-        double violation = Math.max(0, pStar > 0 ? (1 - pStar / p) : 0);
-        sLog.info("Data structures safe to access: {}", this.selectivities != null && this.inputRates!=null && this.outputRates != null && this.ptimes != null);
+        double violation = Math.min(1.0, Math.max(0.0, (p - pStar) / pStar));
+        sLog.info("Data structures safe to access: {}", selectivities != null && inputRates!=null && outputRates != null && ptimes != null);
 
         try {
             Map<String, Double> patternSpecificRates = new HashMap<>();

@@ -38,9 +38,9 @@ import org.uni.potsdam.p1.types.Scope;
 public abstract class Settings3Layers {
 
   // GENERAL JOB INFORMATION
-  public static final int RECORDS_PER_SECOND = 1000;
+  public static final int RECORDS_PER_SECOND = 10_000;
   public static final int CONTROL_BATCH_SIZE = 1000;
-  public static final int BATCH_SIZE = 50_000;
+  public static final int BATCH_SIZE = 100_000;
   public static final double LATENCY_BOUND = 0.000055;
   public static final int TIME_WINDOW = 5;
   public static final Scope SCOPE = Scope.HYBRID;
@@ -53,7 +53,7 @@ public abstract class Settings3Layers {
       .withOutputTypes("0 1 2 3".split(" "))
       .withBatchSize(BATCH_SIZE)
       .withRecordsPerSecond(RECORDS_PER_SECOND)
-      .withDownStreamOperators("o1")
+      .withDownStreamOperators(new String[]{"o1", "o2"})
     ,
     new Source()
       .withName("s2")
@@ -61,6 +61,13 @@ public abstract class Settings3Layers {
       .withBatchSize(BATCH_SIZE)
       .withRecordsPerSecond(RECORDS_PER_SECOND)
       .withDownStreamOperators(new String[]{"o2", "o3"})
+    ,
+    new Source()
+      .withName("s3")
+      .withOutputTypes("0 1 2 3".split(" "))
+      .withBatchSize(BATCH_SIZE)
+      .withRecordsPerSecond(RECORDS_PER_SECOND)
+      .withDownStreamOperators("o7")
   };
 
   // define operators
@@ -72,7 +79,7 @@ public abstract class Settings3Layers {
       .withLatencyBound(LATENCY_BOUND)
       .withExecutionGroup("o1")
       .withPatterns(
-        EventPattern.AND("11", "0:1:3", TIME_WINDOW, new String[]{"o4", "o5"})
+        EventPattern.AND("11", "0:1:3", TIME_WINDOW, new String[]{"o4", "o5", "o7"})
       ),
 
     new OperatorInfo()
@@ -129,23 +136,25 @@ public abstract class Settings3Layers {
 
     new OperatorInfo()
       .withName("o7")
-      .withInputTypes("11 31".split(" "))
+      .withInputTypes("2 3 11 31".split(" "))
       .withControlBatchSize(CONTROL_BATCH_SIZE)
       .withLatencyBound(LATENCY_BOUND)
       .withExecutionGroup("o7")
       .withPatterns(
-        EventPattern.OR("71", "31|1:11|2", TIME_WINDOW, new String[]{"o11", "o12"})
+        EventPattern.OR("71", "31:11", TIME_WINDOW, new String[]{"o11", "o12"}),
+        EventPattern.AND("72", "11:2:3", TIME_WINDOW, new String[]{"o10"})
       ),
 
 
     new OperatorInfo()
       .withName("o10")
-      .withInputTypes("41 51 61".split(" "))
+      .withInputTypes("41 51 61 72".split(" "))
       .withControlBatchSize(CONTROL_BATCH_SIZE)
       .withLatencyBound(LATENCY_BOUND)
       .withExecutionGroup("o10")
       .withPatterns(
-        EventPattern.AND("101", "41:51:61", TIME_WINDOW)
+        EventPattern.AND("101", "41:51:61", TIME_WINDOW),
+        EventPattern.OR("102", "41:72", TIME_WINDOW)
       )
       .toSink(),
 

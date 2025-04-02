@@ -158,15 +158,18 @@ public abstract class OperatorCore implements Serializable {
     LocalTime begin = LocalTime.now();
     for (EventPattern pattern : operator.patterns) {
       boolean dropPattern = isShedding && sheddingRates.get(pattern.name + "_" + value.type) > Math.random();
-
+      //opLog.info("sheddingRates in " + operator.name + ": " + sheddingRates.toString());
       LocalTime start = LocalTime.now();
-
+      //opLog.info("SheddingRates in " + operator.name + sheddingRates.toString());
       if (!dropPattern) {
+        if (isShedding) {
+          //opLog.info("Shedding rates for this event: " + sheddingRates.map.toString());
+        }
         Event event = processors.get(pattern.name).processElement(value);
         if (event != null) {
           outputRateMeasurer.update(pattern.name);
           processSideOutputs(pattern, event);
-          opLog.info(event.toString(operator.name));
+          //opLog.info("Processing event {}",event.toString(operator.name));
         }
       }
       processingTimesMeasurer.updatePatternTime(pattern.name, Duration.between(start, LocalTime.now()).toNanos());

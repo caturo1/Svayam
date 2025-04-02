@@ -59,7 +59,7 @@ public class HybridMessenger extends ProcessFunction<String, String>{
                 //meLog.info("Forwarding kafka message from " + opName + " messenger to operator in " + msgTarget + " for " + msg);
                 ctx.output(kafkaToOperator, msg);
             } else {
-                //meLog.info("Forwarding kafka message from " + opName + " messenger to analyzer in " + msgTarget + " for " + msg);
+                meLog.info("TRAVERSAL: Forwarding kafka message from " + opName + " messenger to analyzer in " + msgTarget + " for " + msg);
                 ctx.output(kafkaToAnalyser, msg);
             }
         } else {
