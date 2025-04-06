@@ -83,6 +83,7 @@ public class HybridOperatorGroup extends AbstractOperatorGroup {
      */
     public void createDataStream(DataStream<String> opKafkaStream) {
         String opName = operatorInfo.name;
+        String executionGroup = operatorInfo.executionGroup;
 
         if (opKafkaStream == null) {
             throw new IllegalArgumentException("Kafka stream cannot be null for operator " + opName);
@@ -126,6 +127,13 @@ public class HybridOperatorGroup extends AbstractOperatorGroup {
             .process(analyser)
             .name("analyser_" + opName);
 
+        /*
+        if(executionGroup!=null) {
+            messengerStream.slotSharingGroup(executionGroup);
+            outputDataStream.slotSharingGroup(executionGroup);
+            analyserOutputStream.slotSharingGroup(executionGroup);
+        }
+        */
         if (toKafka != null && globalChannelOut != null) {
             analyserOutputStream.getSideOutput(toKafka).sinkTo(globalChannelOut);
         }

@@ -6,7 +6,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.flink.streaming.api.functions.co.CoProcessFunction;
 import org.uni.potsdam.p1.types.Event;
-import org.uni.potsdam.p1.types.Metrics;
 import org.uni.potsdam.p1.types.OperatorInfo;
 import org.uni.potsdam.p1.types.outputTags.EventOutput;
 import org.uni.potsdam.p1.types.outputTags.MetricsOutput;
@@ -48,11 +47,17 @@ public class HybridOperator extends CoProcessFunction<Event, String, Event> {
 
     public void integrateRates(String mapToken) {
         Matcher selMatcher = mapPattern.matcher(mapToken);
+        boolean updated = false;
         while (selMatcher.find()) {
             String key = selMatcher.group(1);
             Double value = Double.valueOf(selMatcher.group(2));
             core.sheddingRates.put(key, value);
+            updated = true;
         } 
+
+        if (updated) {
+            //oLog.info(core.operator.getSheddingInfo(core.isShedding, core.sheddingRates));
+        }
     }
 
     @Override
@@ -86,11 +91,11 @@ public class HybridOperator extends CoProcessFunction<Event, String, Event> {
 
         switch(desc) {
             case "startShedding" : 
-                core.isShedding = true;
+                core.setShedding(true);
                 break;
             
             case "stopShedding" :
-                core.isShedding = false;
+                core.setShedding(false);
                 break;
 
             // covers the case of sending the initial map and updated selectivities for just the inputs to one specific pattern

@@ -1,6 +1,7 @@
 package org.uni.potsdam.p1.heuristic;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -111,38 +112,45 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
         // initialize! IllegalStateException
         tagList = new HashMap<>();
         
-        for (EventPattern currentPattern : operator.patterns) {
+        if (!operator.isSinkOperator) {
+            
+            for (String currentInputType : operator.inputTypes) {
             
             // create map that stores to which downstream Operators we have to forward a msg
-            // the map stores an array of downstreamOp arrays for every input of the operator
-            String[] currentInputTypes = currentPattern.getParameters();
-            
-            for (String inputType : currentInputTypes) {
-                ArrayList<String[]> entry;
-                String[] dso = currentPattern.downstreamOperators;
-             
-                if (!inputToOutput.containsKey(inputType)) {
-                    entry = new ArrayList<String[]>();
-                    inputToOutput.put(inputType, entry);
-                } else {
-                    entry = inputToOutput.get(inputType);
+            // the map stores an array of downstreamOp arrays for every input of the operator            
+                for (EventPattern currentPattern : operator.patterns) {
+                    String[] patternInputs = currentPattern.getParameters();
+                    boolean createEntry = Arrays.stream(patternInputs).anyMatch(input -> input.equals(currentInputType));
+                    
+                    if (createEntry) {
+                        ArrayList<String[]> entry;
+                        String[] dso = currentPattern.downstreamOperators;
+                        
+                        if (!inputToOutput.containsKey(currentInputType)) {
+                            entry = new ArrayList<String[]>();
+                            inputToOutput.put(currentInputType, entry);
+                        } else {
+                            entry = inputToOutput.get(currentInputType);
+                        }
+                    
+                        String[] downstreamOpSet = new String[dso.length + 1];
+                        // outputType for to correctly pack messages always at first position
+                        downstreamOpSet[0] = currentPattern.name;
+                        int j = 1;
+                        for (int i = 0; i < dso.length; i++) {
+                            downstreamOpSet[j] = dso[i];
+                            j++;
+                        }
+                        entry.add(downstreamOpSet);
+                        inputToOutput.put(currentInputType, entry);      
+                    }
+                    
+                    for (String downstreamOp : currentPattern.downstreamOperators) {
+                        // I don't think we need check if key in Map, bc it would just overwrite
+                        // the value, if the key is contained, which is faster than searching the whole map for the key each time
+                        tagList.put(downstreamOp, new StringOutput("to_analyser_" + downstreamOp));
+                    }
                 }
-             
-                String[] downstreamOpSet = new String[dso.length + 1];
-                // outputType for to correctly pack messages always at first position
-                downstreamOpSet[0] = currentPattern.name;
-                int j = 1;
-                for (int i = 0; i < dso.length; i++) {
-                    downstreamOpSet[j] = dso[i];
-                    j++;
-                }
-                entry.add(downstreamOpSet);
-                inputToOutput.put(inputType, entry);      
-            }
-            for (String downstreamOp : currentPattern.downstreamOperators) {
-                // I don't think we need check if key in Map, bc it would just overwrite
-                // the value, if the key is contained, which is faster than searching the whole map for the key each time
-                tagList.put(downstreamOp, new StringOutput("to_analyser_" + downstreamOp));
             }
         }
         
@@ -180,6 +188,9 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
         lastAverage = operator.latencyBound;
         lastPtime = lastAverage;
         lastLambda = operator.controlBatchSize;
+
+        printInputToOutputMap();
+        aLog.info("Taglist for " + opName + ": " + tagList.toString());
     }
 
     public void resetDataStructures() {
@@ -193,6 +204,7 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
             }
         }
         selectivities.put("birth", -1.);
+        messageID = -1;
     }
 
     /**
@@ -246,18 +258,18 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
                     double diff = 0;
                     // do we run over all eventTypes??
                     // don't we add inputRates for events that arent in our current operator
-                    for(String eventType :  newInputRates.keySet()) {
-                        if(!eventType.equals("total")) {
+                    for(String eventType :  metric.map.keySet()) {
+                        if(!eventType.equals("total") && newInputRates.containsKey(eventType)) {
                         double oldValue = newInputRates.get(eventType); 
                         double newValue = metric.get(eventType);
                         diff += (newValue-oldValue);
                         newInputRates.put(eventType, newValue); 
-                        oldInputRates.put(eventType, oldValue);
+                        //oldInputRates.put(eventType, oldValue);
                         }
                     }
                     var oldTotal = newInputRates.get("total");
                     newInputRates.put("total",newInputRates.get("total")+diff);
-                    oldInputRates.put("total", oldTotal);
+                    //oldInputRates.put("total", oldTotal);
                 }
                 break;                
             }
@@ -279,6 +291,7 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
 
             // we can cut down processing time here by just checking overload in time intervals instead of every metric receival
             if (coldStartAvoided) {
+                //aLog.info("Avoided cold start with ir: " + newInputRates + " or: " + outputRates + " ptimes: " + processingTimes);
                 double totalLambda = newInputRates.get("total");
                 double totalPtime = processingTimes.get("total");
                 double calculatedP = 0.;
@@ -312,7 +325,7 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
                     } 
                 // when do we want to stop shedding really? Because if we stop prematurely in the traversal, we have to synchronize this overall
                 //if we are collecting, we always set the shedding flag, so the check is not really necessary I think
-                } else if (isShedding && (totalPtime < sheddingExit) && !collecting && cooledDown && coldStartAvoided) {
+                } else if (isShedding /*&& (totalPtime < sheddingExit)*/ && !collecting && cooledDown && coldStartAvoided) {
                     recoverFromOverload(ctx);
                     lastAverage = calculatedP;
                     lastPtime = totalPtime;
@@ -371,7 +384,9 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
             aLog.info("Local selectivities in " + opName + " of: " + selectivities.toString());
         }
         selectivities.put("birth", Double.valueOf(System.currentTimeMillis()));
-        aLog.info("Successfully updates selectivities in " + opName + " as: " + selectivities.toString());
+        if (opName.equals("o2")) {
+            aLog.info("Successfully updates selectivities in " + opName + " as: " + selectivities.toString());
+        }
             //var res = this.selectivities.put("birth", Double.valueOf(System.currentTimeMillis()));
             //aLog.info("Processing times in " + opName + parseMapToString(processingTimes, opName, opName, opName));
             //aLog.info("InputRates in " + opName + parseMapToString(newInputRates, opName, opName, opName));
@@ -388,8 +403,9 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
                 shedder.sheddingRates.put(outType + "_" + inputType, 0.);
             }
         }
-
-        aLog.info("overload resolved in " + opName + " sending: " + stopMsg);
+        if (opName.equals("o2")) {
+            aLog.info("overload resolved in " + opName + " sending: " + stopMsg);
+        }
         ctx.output(toKafka, stopMsg);
         isOverloaded = false;
         isShedding = false;
@@ -418,6 +434,30 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
         }
     }
 
+    public void printInputToOutputMap() {
+        StringBuilder builder = new StringBuilder();
+        builder.append("InputToOutput Map:\n");
+    
+        for (Map.Entry<String, ArrayList<String[]>> entry : inputToOutput.entrySet()) {
+            String inputType = entry.getKey();
+            ArrayList<String[]> outputMappings = entry.getValue();
+    
+            builder.append("Input Type: ").append(inputType).append("\n");
+            for (String[] mapping : outputMappings) {
+                builder.append("  Output Mapping: [");
+                for (int i = 0; i < mapping.length; i++) {
+                    builder.append(mapping[i]);
+                    if (i < mapping.length - 1) {
+                        builder.append(", ");
+                    }
+                }
+                builder.append("]\n");
+            }
+        }
+    
+        aLog.info(builder.toString());
+    }
+
     /**
      * Procedure to send shedding information to the shedder. 
      * The traversal will be initiated by sending the selectivities downstream
@@ -430,14 +470,13 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
         try {
             isOverloaded = true;
             isShedding = true;
-            //selectivities.clear();
-            //sheddingRates.map.clear();
             resetDataStructures();
-            //aLog.info("overload detected in " + opName);
             updateSelectivities();
 
             reportToKafka(ctx);
-            aLog.info("Overload detected from overload coordination function in" + opName + ": inputR: " + newInputRates + " ouputR: " + outputRates + " pTimes: " + processingTimes + "shedding Rates: " + shedder.sheddingRates.toString());
+            if (opName.equals("o2")) {
+                aLog.info("Overload detected from overload coordination function in" + opName + ": inputR: " + newInputRates + " ouputR: " + outputRates + " pTimes: " + processingTimes + "shedding Rates: " + shedder.sheddingRates.toString());
+            }
             
             // if we are the leaf operator that overloads
             // leave it at sending local sheddingRates to the operator (local shedding only)
@@ -470,7 +509,9 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
     public void reportToKafka(Context ctx) {
         try {
             boolean shouldSend = shedder.calculateSheddingRates(isShedding, this.newInputRates, this.outputRates, this.processingTimes, this.selectivities);
-            aLog.info("Sending local sheddingRates in " + opName);
+            if (opName.equals("o2")) {
+                aLog.info("Sending local sheddingRates in " + opName);
+            }
 
             String initMsg = String.format("target:%s description:startShedding origin:%s pattern:null timestamp:null messageID:%d ~ null", opName, opName, 0);
             ctx.output(toKafka, initMsg);
@@ -558,10 +599,12 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
     */
    public void handleSinkOperatorMessaging(Double reducedSelectivity, String upstreamTarget, String relevantInputType, String upstreamPatternType, Context ctx, int msgID) throws RuntimeException {
         aLog.debug(newInputRates.toString());
-        aLog.info("Selectivity before integration in sink  " + opName + " for " + upstreamTarget + " is: " + reducedSelectivity + " with inputRate " + newInputRates.toString() + " and outputRates: " + outputRates.toString());
         Double result = Double.min(newInputRates.get(relevantInputType), reducedSelectivity);
         String finalSel = parseSelToString(result, upstreamTarget, System.currentTimeMillis(), "sink", upstreamPatternType, msgID);
-        aLog.info("Selectivity after integration in sink " + opName + " for " + upstreamTarget + " is: " + result + " with inputRate " + newInputRates.toString() + " and outputRates: " + outputRates.toString());
+        if (upstreamTarget.equals("o2")) {
+            aLog.info("Selectivity before integration in sink  " + opName + " for " + upstreamTarget + " is: " + reducedSelectivity + " with inputRate " + newInputRates.toString() + " and outputRates: " + outputRates.toString());
+            aLog.info("Selectivity after integration in sink " + opName + " for " + upstreamTarget + " is: " + result + " with inputRate " + newInputRates.toString() + " and outputRates: " + outputRates.toString());
+        }
         if (!upstreamTarget.isEmpty()) {
             ctx.output(toKafka, finalSel);
         }
@@ -587,13 +630,15 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
        //aLog.info("Trying to look for pattern: " + relevantPattern + " in " + opName);
        String msgPatternType = operator.getPattern(relevantPattern).getType();
        //aLog.info("Found pattern type " + msgPatternType + " in analyser " + opName);
-       aLog.info("Selectivity before integration in " + opName + " for " + relevantPattern + " is: " + messageSelectivity + " with inputRate " + newInputRates.toString() + " and outputRates: " + outputRates.toString());
        if (msgPatternType.equals("AND") || msgPatternType.equals("SEQ")) {
-            update = Double.min(messageSelectivity, selectivities.get(relevantPattern));
+           update = Double.min(messageSelectivity, selectivities.get(relevantPattern));
         } else if (msgPatternType.equals("OR")) {
             update = Double.max(messageSelectivity, selectivities.get(relevantPattern));
         }
-        aLog.info("Selectivity after integration in " + opName + " for " + relevantPattern + " is: " + update + " with inputRate " + newInputRates.toString() + " and outputRates: " + outputRates.toString());
+        if (opName.equals("o2")) {
+            aLog.info("Selectivity before integration in " + opName + " for " + relevantPattern + " is: " + messageSelectivity + " with inputRate " + newInputRates.toString() + " and outputRates: " + outputRates.toString());
+            aLog.info("Selectivity after integration in " + opName + " for " + relevantPattern + " is: " + update + " with inputRate " + newInputRates.toString() + " and outputRates: " + outputRates.toString());
+        }
         return update;
     }
     
@@ -631,7 +676,9 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
                 String integratedMsg = parseSelToString(integratedSel, subscriber.getTargetOperator(), System.currentTimeMillis(), "null", subscriber.getTargetPattern(), id);
                 //aLog.info("kafka upstream forwarding message in " + opName + "analyzer, with:\n" + integratedMsg);
                 ctx.output(toKafka, integratedMsg);
-                aLog.info("Forwarded downstream selectivities with msg:" + integratedMsg);
+                if (opName.equals("o2")) {
+                    aLog.info("Forwarded downstream selectivities with msg:" + integratedMsg);
+                }
                 subscriber.hasBeenServed = true;
                 continue;
             } else if (subscriber.hasBeenServed){
@@ -722,6 +769,8 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
      */
     @Override
     public void processElement2(String msg, Context ctx, Collector<String> out) {
+        // Log incoming message
+        aLog.info("[{}] Received message: {}", opName, msg);
         // unpack the selectivities
         // integrate them into the new selectivity collection
         // check if we are overloaded (yes -> wait for selectivites, coordinate and integrate information)
@@ -751,11 +800,15 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
             selPattern = matchHeader.group(4);
             timestamp = Long.parseLong(matchHeader.group(5));
             msgID = Integer.parseInt(matchHeader.group(6));
+
+            aLog.info("[{}] Parsed message - Target: {}, Description: {}, Origin: {}, Pattern: {}, MsgID: {}",
+                opName, msgTarget, desc, origin, selPattern, msgID);
         }
         
         boolean selStillValid = timestamp - (selectivities.get("birth") != null ? selectivities.get("birth").longValue() : 0) <= lifeTime;
+        aLog.info("[{}] Selectivity valid: {}, Time diff: {}, Lifetime: {}", 
+            opName, selStillValid, (timestamp - (selectivities.get("birth") != null ? selectivities.get("birth").longValue() : 0)), lifeTime);
         
-        // now unnessesary overhead -> can compile the whole pattern once
         Matcher matcher = regPattern.matcher(mapToken);
         double aggSel = Double.POSITIVE_INFINITY;
         String outputType = "";
@@ -763,33 +816,41 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
         // can maybe store the timediffs, calculate the average
         // on some messages and use this as an updated dynamic timeout
         // there are inconsistencies here
-        long timeDiff = traversalInitiation > 0 ? timestamp - traversalInitiation : -1;
-        if (!operator.isSinkOperator){
-            aLog.info(opName + " timestamp = " + timestamp + ", traversalInitiation = " + traversalInitiation + "for msgID: " + msgID);
-            aLog.info(String.format("Time passed since traversal of %s was initiated: %d ", opName, timeDiff));
-        }
-
+        
         while (matcher.find()) {
             outputType = matcher.group(1);
-            aggSel = matcher.group(2) == "Infinity" ? Double.POSITIVE_INFINITY : Double.valueOf(matcher.group(2));
+            aggSel = matcher.group(2).equals("Infinity") ? Double.POSITIVE_INFINITY : 
+            (matcher.group(2).equals("-Infinity") ? Double.NEGATIVE_INFINITY : Double.valueOf(matcher.group(2)));
+            
+            aLog.info("[{}] Parsed values - OutputType: {}, AggSel: {}", opName, outputType, aggSel);
         }
-
         
-        ArrayList<String[]> candidates = inputToOutput.get(outputType); 
+        ArrayList<String[]> candidates = inputToOutput.get(outputType);
+        
+        // Log candidates
+        aLog.info("[{}] Found {} candidates for outputType: {}", 
+            opName, (candidates != null ? candidates.size() : 0), outputType);
         // 1a. We are NOT the target operator of the message, thus receive an upstream message
         if (!msgTarget.equals(opName)) {
-            aLog.info("Selectivities from upstream in " + opName + "for input " + outputType + " are " + aggSel + ". With the send message:" + msg);
+            aLog.info("[{}] Processing upstream message from {}", opName, origin);
+            
             Double updatedAggSel = Double.min(newInputRates.get(outputType), aggSel);
-
-            // if we are the sink and recv upstream msg, forward final sels back to target operator from the message
+            
+            // Log rate comparison
+            aLog.info("[{}] Rate comparison - Input rate: {}, Incoming aggSel: {}, Updated aggSel: {}", 
+            opName, newInputRates.get(outputType), aggSel, updatedAggSel);
+            
+            // if we are the sink and recv upstream msg
             if (operator.isSinkOperator) {
-                handleSinkOperatorMessaging(aggSel, msgTarget, outputType, selPattern, ctx, messageID);
+                aLog.info("[{}] Sink operator handling message from {}", opName, msgTarget);
+                handleSinkOperatorMessaging(aggSel, msgTarget, outputType, selPattern, ctx, msgID);
                 return;
             }
-
+            
             // 2a. We ARE overloaded, thus already collecting, not a sink and thus register
             if (isOverloaded) {
-                aLog.info("Register at " + opName);
+                
+                long timeDiff = traversalInitiation > 0 ? timestamp - traversalInitiation : -1;
                 // only register, if the msg arrived in the traversal timeframe
                 // 3 s timeout for now
 
@@ -797,7 +858,7 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
                     // we know where to send, but which selectivity do we send to whom?
                     // for the amount of time we collect all the selectivities we receive
                     // but have to forward them corrispondingly
-                    if (!candidates.isEmpty()) {
+                    if (candidates != null && !candidates.isEmpty()) {
                         registerAtPattern(candidates, msgTarget, selPattern, aggSel, ctx);
                     }
                     return;
@@ -812,14 +873,16 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
                     gradualChanges = 0.;
                     //aLog.info("Encountered after timeout in " + opName + "but selectivities are still valid, thus try forwarding upstream.");
 
-                    if (candidates.isEmpty()) {
+                    if (candidates != null && candidates.isEmpty()) {
                         throw new RuntimeException("Registration at downstream operator failed");
                     }
                     for (String[] candidate : candidates) {
                         try {
                             //String localPatternType = operator.getPattern(candidate[0]).getType();
                             //aLog.info("Found pattern type " + localPatternType + " in analyser " + opName);
-                            aLog.info("We are not the taget as " +  opName + "but still need to integrate the selectivity.");
+                            if (opName.equals("o2")) {
+                                aLog.info("We are not the taget as " +  opName + "but still need to integrate the selectivity.");
+                            }
                             Double reducedSel = reduceSelectivity(aggSel, candidate[0]);
                             //aLog.info("Reduced selectivitiy in " + opName);
                             String upstream = parseSelToString(reducedSel, msgTarget, System.currentTimeMillis(), "null", selPattern, msgID);
@@ -855,9 +918,21 @@ public class HybridAnalyser extends CoProcessFunction<Metrics, String, String> {
 
         // 1b. We ARE the target operator, thus receive a downstream selectivity (only when we initiated the traversal prior to this)
         else {
-            aLog.info("Selectivities from downstream in " + opName + "for input " + outputType + " are " + aggSel + ". With the send message:" + msg);
+            if (opName.equals("o2")) {
+                aLog.info("Selectivities from downstream in " + opName + "for input " + outputType + " are " + aggSel + ". With the send message:" + msg);
+            }
             if (operator.isSinkOperator) {
                 throw new IllegalArgumentException("The sink operator should not receive downstream messages");
+            }
+
+            // if we receive a selecitivty resulting from default metric maps, don't process them
+            if (aggSel == -1) {
+                return;
+            }
+
+            long timeDiff = traversalInitiation > 0 ? timestamp - traversalInitiation : -1;
+            if (timeDiff == -1) {
+                aLog.info("TimeDiff [{}] is {}", opName, timeDiff);
             }
             Double update = reduceSelectivity(aggSel, selPattern);
 

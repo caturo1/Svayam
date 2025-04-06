@@ -7,9 +7,14 @@ import org.apache.flink.connector.datagen.source.DataGeneratorSource;
 import org.apache.flink.connector.datagen.source.GeneratorFunction;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.uni.potsdam.p1.types.Event;
 
+import java.io.BufferedWriter;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.stream.Stream;
@@ -17,7 +22,7 @@ import java.util.stream.Stream;
 /**
  * <p>This class stores the basic information about a source to be used in an
  * {@link org.uni.potsdam.p1.execution.OperatorGraph}. Instances of this class should
- * be defined in the {@link org.uni.potsdam.p1.execution.Settings} of this project, where
+ * be defined in the {@link org.uni.potsdam.p1.execution.Settings2Layers} of this project, where
  * they are used to parse the flink-job to be executed.
  * This class holds the following information about a source:</p>
  * <ul>
@@ -28,7 +33,8 @@ import java.util.stream.Stream;
  *   <li>Downstream operators: all operator to which this source sends records to</li>
  * </ul>
  */
-public class Source {
+public class Source implements Serializable{
+  private static final Logger sourceLog = LoggerFactory.getLogger(Source.class); 
   public String name;
   public GeneratorFunction<Long, Event> eventGenerator;
   public int batchSize;
@@ -38,6 +44,8 @@ public class Source {
   public int recordsPerSecond = 0;
 
   public double mean;
+  public String eventFilePath;
+  public boolean enableRecording;
 
   /**
    * Constructs new source
@@ -153,6 +161,27 @@ public class Source {
   }
 
   /**
+ * Enable writing generated events to a file for later analysis or replay.
+ *
+ * @param outputFilePath The path where events will be written
+ * @return Reference to this source
+ */
+public Source withEventOutput(String outputFilePath) {
+  this.eventFilePath = outputFilePath;
+  this.enableRecording = true;
+  
+  // Make sure parent directories exist
+  try {
+      Path path = java.nio.file.Path.of(outputFilePath);
+      Files.createDirectories(path.getParent());
+  } catch (IOException e) {
+      throw new RuntimeException("Failed to create output directory for event logging", e);
+  }
+  
+  return this;
+}
+
+  /**
    * Creates a {@link DataGeneratorSource} which will produce events in the flink environment.
    *
    * @return Event source for flink.
@@ -164,6 +193,7 @@ public class Source {
       RateLimiterStrategy.perSecond(this.recordsPerSecond),
       TypeInformation.of(Event.class));
   }
+
 
   /**
    * Creates a {@link DataStream} to be used in a flink-{@link StreamExecutionEnvironment}
@@ -178,8 +208,27 @@ public class Source {
             WatermarkStrategy.noWatermarks(), name)
           .name(name);
     }
+    
+    // Apply the PoissonDataSource if mean > 0
     if (mean > 0) {
       sourceStream = sourceStream.flatMap(new PoissonDataSource(mean));
+    }
+    
+    // If event recording is enabled, add a map function to record events
+    if (enableRecording && eventFilePath != null && !eventFilePath.isEmpty()) {
+      final String filePath = this.eventFilePath;
+
+      sourceStream = sourceStream.map(event -> {
+        try (FileWriter fileW = new FileWriter(filePath, true);
+          BufferedWriter writer = new BufferedWriter(fileW)) {
+          if (writer != null && fileW != null) {
+            writer.write(String.format("%s,%d,%s\n", event.type, event.eventTime, event.id));
+          }
+        } catch (Exception e) {
+          System.err.println("Error while printing to file");
+        }
+        return event;
+      });
     }
   }
 }

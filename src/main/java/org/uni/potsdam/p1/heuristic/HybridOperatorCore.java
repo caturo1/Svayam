@@ -30,10 +30,9 @@ public class HybridOperatorCore extends OperatorCore {
 
     @Override
     protected void processSideOutputs(EventPattern pattern, Event value) {
-        for (String downstreamOp : pattern.downstreamOperators) {
+        for (String downstreamOp : pattern.downstreamOperators) 
             ctx.output(extraOutputs.get(downstreamOp), value);
         }
-    }
 
     @Override
     protected void processMeasuredRates() {
@@ -42,7 +41,7 @@ public class HybridOperatorCore extends OperatorCore {
             updateAndForward(processingTimesMeasurer, processingTimes, ctx);
             updateAndForward(processingRateMeasurer, processingRates, ctx);      
             // Log stats
-            // opLog.info(String.format("{\"ptime\":%f,\"time\":%d,\"name\":\"%s\"}", processingTimesMeasurer.results.get("total"),System.currentTimeMillis(), operator.nam));
+            opLog.info(String.format("{\"ptime\":%f,\"time\":%d,\"name\":\"%s\"}", processingTimesMeasurer.results.get("total"), System.currentTimeMillis(), operator.name));
         }
 
         if (outputRateMeasurer.isReady()) {
